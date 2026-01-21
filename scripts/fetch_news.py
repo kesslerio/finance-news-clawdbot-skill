@@ -254,23 +254,26 @@ def fetch_portfolio_news(args):
 
 def main():
     parser = argparse.ArgumentParser(description='News Fetcher')
-    parser.add_argument('--json', action='store_true', help='Output as JSON')
-    parser.add_argument('--limit', type=int, default=5, help='Max articles per source')
-    parser.add_argument('--force', action='store_true', help='Bypass cache')
-    parser.add_argument('--verbose', '-v', action='store_true', help='Show descriptions')
-    
     subparsers = parser.add_subparsers(dest='command', required=True)
     
     # All news
     all_parser = subparsers.add_parser('all', help='Fetch all news sources')
+    all_parser.add_argument('--json', action='store_true', help='Output as JSON')
+    all_parser.add_argument('--limit', type=int, default=5, help='Max articles per source')
+    all_parser.add_argument('--force', action='store_true', help='Bypass cache')
+    all_parser.add_argument('--verbose', '-v', action='store_true', help='Show descriptions')
     all_parser.set_defaults(func=fetch_all_news)
     
     # Market news
     market_parser = subparsers.add_parser('market', help='Market overview + headlines')
+    market_parser.add_argument('--json', action='store_true', help='Output as JSON')
+    market_parser.add_argument('--limit', type=int, default=5, help='Max articles per source')
     market_parser.set_defaults(func=fetch_market_news)
     
     # Portfolio news
     portfolio_parser = subparsers.add_parser('portfolio', help='News for portfolio stocks')
+    portfolio_parser.add_argument('--json', action='store_true', help='Output as JSON')
+    portfolio_parser.add_argument('--limit', type=int, default=5, help='Max articles per source')
     portfolio_parser.set_defaults(func=fetch_portfolio_news)
     
     args = parser.parse_args()
