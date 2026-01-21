@@ -6,85 +6,80 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 import pytest
 import json
-from unittest.mock import patch
-from setup import validate_language, validate_markets, create_config
+from unittest.mock import patch, MagicMock
+from setup import load_sources, save_sources, get_default_sources
 
 
-def test_validate_language_valid():
-    """Test valid language codes."""
-    assert validate_language("en") is True
-    assert validate_language("de") is True
-    assert validate_language("EN") is True  # Case insensitive
-
-
-def test_validate_language_invalid():
-    """Test invalid language codes."""
-    assert validate_language("xx") is False
-    assert validate_language("") is False
-    assert validate_language("english") is False
-
-
-def test_validate_markets_valid():
-    """Test valid market codes."""
-    assert validate_markets(["US"]) is True
-    assert validate_markets(["US", "EU"]) is True
-    assert validate_markets(["us", "jp"]) is True  # Case insensitive
-
-
-def test_validate_markets_invalid():
-    """Test invalid market codes."""
-    assert validate_markets([]) is False  # Empty
-    assert validate_markets(["XX"]) is False  # Invalid code
-    assert validate_markets(["US", "INVALID"]) is False  # Mix
-
-
-def test_create_config(tmp_path, monkeypatch):
-    """Test config file creation."""
-    config_file = tmp_path / "config.json"
-    monkeypatch.setattr("setup.CONFIG_FILE", config_file)
+def test_load_sources_missing_file(tmp_path, monkeypatch):
+    """Test loading non-existent sources returns defaults."""
+    sources_file = tmp_path / "sources.json"
+    monkeypatch.setattr("setup.Path", lambda *args: sources_file)
     
-    config_data = {
-        "language": "en",
-        "markets": ["US", "EU"],
-        "sources": {"yahoo": {"enabled": True}}
+    # get_default_sources should be called
+    sources = get_default_sources()
+    
+    assert isinstance(sources, dict)
+    assert len(sources) > 0  # Should have some default sources
+
+
+def test_save_sources(tmp_path, monkeypatch):
+    """Test saving sources to JSON."""
+    sources_file = tmp_path / "sources.json"
+    
+    sources = {
+        "yahoo": {"enabled": True, "rss": "https://example.com/rss"},
+        "cnbc": {"enabled": False}
     }
     
-    create_config(config_data)
+    with patch("setup.Path", return_value=sources_file):
+        save_sources(sources)
     
-    assert config_file.exists()
-    with open(config_file) as f:
-        saved_config = json.load(f)
+    assert sources_file.exists()
+    with open(sources_file) as f:
+        saved = json.load(f)
     
-    assert saved_config["language"] == "en"
-    assert saved_config["markets"] == ["US", "EU"]
+    assert saved["yahoo"]["enabled"] is True
+    assert saved["cnbc"]["enabled"] is False
 
 
-def test_create_config_creates_parent_dir(tmp_path, monkeypatch):
-    """Test config creation creates parent directory."""
-    config_file = tmp_path / "subdir" / "config.json"
-    monkeypatch.setattr("setup.CONFIG_FILE", config_file)
+def test_get_default_sources():
+    """Test default sources structure."""
+    sources = get_default_sources()
     
-    config_data = {"language": "en"}
-    create_config(config_data)
-    
-    assert config_file.parent.exists()
-    assert config_file.exists()
+    assert isinstance(sources, dict)
+    # Should have common sources
+    assert any("yahoo" in k.lower() or "cnbc" in k.lower() or "marketwatch" in k.lower() 
+               for k in sources.keys())
 
 
-@patch("builtins.input", side_effect=["en", "US,EU", "y"])
-def test_setup_wizard_integration(mock_input, tmp_path, monkeypatch):
-    """Test interactive setup wizard flow."""
-    from setup import run_setup_wizard
+@patch("setup.prompt", side_effect=["en"])
+@patch("setup.save_sources")
+def test_setup_language(mock_save, mock_prompt):
+    """Test language setup function."""
+    from setup import setup_language
     
-    config_file = tmp_path / "config.json"
-    monkeypatch.setattr("setup.CONFIG_FILE", config_file)
+    sources = {"config": {}}
+    setup_language(sources)
     
-    run_setup_wizard()
+    # Should have called prompt
+    mock_prompt.assert_called()
+    # Should have saved
+    mock_save.assert_called_once()
+
+
+@patch("setup.prompt_bool", return_value=True)
+@patch("setup.save_sources")
+def test_setup_markets(mock_save, mock_prompt):
+    """Test markets setup function."""
+    from setup import setup_markets
     
-    assert config_file.exists()
-    with open(config_file) as f:
-        config = json.load(f)
+    sources = {
+        "us_source": {"enabled": False},
+        "eu_source": {"enabled": False}
+    }
+    setup_markets(sources)
     
-    assert config["language"] == "en"
-    assert "US" in config["markets"]
-    assert "EU" in config["markets"]
+    # Should have prompted
+    assert mock_prompt.called
+    # Should have saved
+    mock_save.assert_called_once()

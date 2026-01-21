@@ -6,20 +6,21 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 import pytest
-from portfolio import load_portfolio, save_portfolio, add_position, remove_position
+from portfolio import load_portfolio, save_portfolio
 
 
 def test_load_portfolio_success(tmp_path, monkeypatch):
     """Test loading valid portfolio CSV."""
     portfolio_file = tmp_path / "portfolio.csv"
-    portfolio_file.write_text("symbol,shares\nAAPL,100\nTSLA,50\n")
+    portfolio_file.write_text("symbol,name,category,notes\nAAPL,Apple,Tech,\nTSLA,Tesla,Auto,\n")
     
     monkeypatch.setattr("portfolio.PORTFOLIO_FILE", portfolio_file)
     positions = load_portfolio()
     
     assert len(positions) == 2
-    assert positions[0] == {"symbol": "AAPL", "shares": "100"}
-    assert positions[1] == {"symbol": "TSLA", "shares": "50"}
+    assert positions[0]["symbol"] == "AAPL"
+    assert positions[0]["name"] == "Apple"
+    assert positions[1]["symbol"] == "TSLA"
 
 
 def test_load_portfolio_missing_file(tmp_path, monkeypatch):
@@ -37,50 +38,38 @@ def test_save_portfolio(tmp_path, monkeypatch):
     monkeypatch.setattr("portfolio.PORTFOLIO_FILE", portfolio_file)
     
     positions = [
-        {"symbol": "AAPL", "shares": 100},
-        {"symbol": "MSFT", "shares": 75}
+        {"symbol": "AAPL", "name": "Apple", "category": "Tech", "notes": ""},
+        {"symbol": "MSFT", "name": "Microsoft", "category": "Tech", "notes": ""}
     ]
     save_portfolio(positions)
     
     content = portfolio_file.read_text()
-    assert "symbol,shares" in content
-    assert "AAPL,100" in content
-    assert "MSFT,75" in content
+    assert "symbol,name,category,notes" in content
+    assert "AAPL" in content
+    assert "MSFT" in content
 
 
-def test_add_position(tmp_path, monkeypatch):
-    """Test adding new position."""
+def test_save_empty_portfolio(tmp_path, monkeypatch):
+    """Test saving empty portfolio creates header."""
     portfolio_file = tmp_path / "portfolio.csv"
-    portfolio_file.write_text("symbol,shares\nAAPL,100\n")
     monkeypatch.setattr("portfolio.PORTFOLIO_FILE", portfolio_file)
     
-    add_position("TSLA", 50)
-    positions = load_portfolio()
+    save_portfolio([])
     
-    assert len(positions) == 2
-    assert any(p["symbol"] == "TSLA" and p["shares"] == "50" for p in positions)
+    content = portfolio_file.read_text()
+    assert content == "symbol,name,category,notes\n"
 
 
-def test_remove_position(tmp_path, monkeypatch):
-    """Test removing existing position."""
+def test_load_portfolio_preserves_fields(tmp_path, monkeypatch):
+    """Test loading portfolio preserves all fields."""
     portfolio_file = tmp_path / "portfolio.csv"
-    portfolio_file.write_text("symbol,shares\nAAPL,100\nTSLA,50\n")
+    portfolio_file.write_text("symbol,name,category,notes\nAAPL,Apple Inc,Tech,Core holding\n")
     monkeypatch.setattr("portfolio.PORTFOLIO_FILE", portfolio_file)
     
-    remove_position("AAPL")
     positions = load_portfolio()
     
     assert len(positions) == 1
-    assert positions[0]["symbol"] == "TSLA"
-
-
-def test_remove_nonexistent_position(tmp_path, monkeypatch):
-    """Test removing position that doesn't exist."""
-    portfolio_file = tmp_path / "portfolio.csv"
-    portfolio_file.write_text("symbol,shares\nAAPL,100\n")
-    monkeypatch.setattr("portfolio.PORTFOLIO_FILE", portfolio_file)
-    
-    remove_position("TSLA")  # Should not error
-    positions = load_portfolio()
-    
-    assert len(positions) == 1  # AAPL still there
+    assert positions[0]["symbol"] == "AAPL"
+    assert positions[0]["name"] == "Apple Inc"
+    assert positions[0]["category"] == "Tech"
+    assert positions[0]["notes"] == "Core holding"

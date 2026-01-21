@@ -40,28 +40,28 @@ def test_fetch_rss_network_error():
 
 
 def test_get_best_feed_url_priority():
-    """Test feed URL selection prioritizes 'rss' key."""
+    """Test feed URL selection prioritizes 'top' key."""
     source = {
         "name": "Test Source",
         "homepage": "https://example.com",
-        "rss": "https://example.com/rss.xml",
-        "atom": "https://example.com/atom.xml"
+        "top": "https://example.com/top.xml",
+        "markets": "https://example.com/markets.xml"
     }
     
     url = _get_best_feed_url(source)
-    assert url == "https://example.com/rss.xml"
+    assert url == "https://example.com/top.xml"
 
 
 def test_get_best_feed_url_fallback():
-    """Test feed URL falls back when 'rss' missing."""
+    """Test feed URL falls back to other http URLs when priority keys missing."""
     source = {
         "name": "Test Source",
         "homepage": "https://example.com",
-        "atom": "https://example.com/atom.xml"
+        "feed": "https://example.com/feed.xml"
     }
     
     url = _get_best_feed_url(source)
-    assert url == "https://example.com/atom.xml"
+    assert url == "https://example.com/feed.xml"
 
 
 def test_get_best_feed_url_none_if_no_urls():
