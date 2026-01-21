@@ -32,7 +32,7 @@ If you have subscriptions and want premium content, follow the steps below.
 
 - Active WSJ or Barron's subscription
 - Browser with active login session (Chrome/Firefox)
-- Python `requests` library (already installed)
+- **Note:** Code examples use `requests` library (not currently in requirements.txt)
 
 ### Step 1: Export Cookies from Browser
 
@@ -53,31 +53,38 @@ Create `config/cookies.json` (this file is gitignored):
 
 ```json
 {
-  "wsj.com": {
+  "feeds.a.dj.com": {
     "wsjgeo": "US",
     "djcs_session": "YOUR_SESSION_TOKEN_HERE",
     "djcs_route": "YOUR_ROUTE_HERE"
   },
-  "barrons.com": {
+  "www.barrons.com": {
     "wsjgeo": "US",
     "djcs_session": "YOUR_SESSION_TOKEN_HERE"
   }
 }
 ```
 
+**Important:** Cookie domain must match feed URL domain:
+- WSJ feeds use `feeds.a.dj.com` (not `wsj.com`)
+- Barron's feeds use `www.barrons.com`
+- Check `config/sources.json` for actual feed URLs
+
 **Note:** Cookie names/values vary by site. Export from browser to get actual values.
 
 ### Step 3: Pass Cookies to fetch_news.py
 
-**Option A: Modify fetch_news.py (recommended)**
+**Option A: Modify fetch_news.py (not officially supported)**
 
-Add cookie loading to `fetch_rss()` function:
+Add cookie loading to `fetch_rss()` function (maintains existing signature):
 
 ```python
 import json
+import urllib.request
 from pathlib import Path
+from urllib.parse import urlparse
 
-def fetch_rss(url: str, source_name: str = "Unknown") -> list[dict]:
+def fetch_rss(url: str, limit: int = 10) -> list[dict]:
     """Fetch and parse RSS feed with optional cookie authentication."""
     
     # Load cookies if they exist
@@ -86,19 +93,20 @@ def fetch_rss(url: str, source_name: str = "Unknown") -> list[dict]:
     if cookie_file.exists():
         with open(cookie_file) as f:
             all_cookies = json.load(f)
-            # Extract domain from URL
-            from urllib.parse import urlparse
+            # Extract domain from URL (e.g., feeds.a.dj.com)
             domain = urlparse(url).netloc
             cookies = all_cookies.get(domain, {})
     
-    # Fetch with cookies
-    req = urllib.request.Request(url)
+    # Fetch with cookies and User-Agent
+    req = urllib.request.Request(url, headers={'User-Agent': 'Clawdbot/1.0'})
     if cookies:
         cookie_header = "; ".join([f"{k}={v}" for k, v in cookies.items()])
         req.add_header("Cookie", cookie_header)
     
-    # ... rest of function
+    # ... rest of function (unchanged)
 ```
+
+**Note:** This is a doc-only suggestion, not officially supported by the skill.
 
 **Option B: Use requests library instead of urllib**
 
@@ -117,10 +125,11 @@ def fetch_rss(url: str, cookies_dict: dict = None) -> list[dict]:
 
 **Critical: Do NOT commit cookies to git**
 
-1. **Verify `.gitignore` includes:**
-   ```
-   config/cookies.json
-   *.cookie
+1. **Add to `.gitignore`** (not currently included):
+   ```bash
+   echo "config/cookies.json" >> .gitignore
+   echo "*.cookie" >> .gitignore
+   git add .gitignore && git commit -m "chore: gitignore cookie files"
    ```
 
 2. **Set restrictive file permissions:**
@@ -161,7 +170,10 @@ def fetch_rss(url: str, cookies_dict: dict = None) -> list[dict]:
 ### Cookies not working
 
 **Debug checklist:**
-- [ ] Correct domain in cookies.json (wsj.com not www.wsj.com)
+- [ ] Correct domain in cookies.json:
+  - WSJ: Use `feeds.a.dj.com` (not `wsj.com`)
+  - Barron's: Use `www.barrons.com` (not `barrons.com`)
+  - Check `config/sources.json` for actual feed URLs
 - [ ] Cookie values copied completely (no truncation)
 - [ ] Browser session still active (test by visiting site)
 - [ ] File permissions correct (chmod 600)
