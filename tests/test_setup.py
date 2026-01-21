@@ -64,13 +64,13 @@ def test_get_default_sources():
 @patch("setup.save_sources")
 def test_setup_language(mock_save, mock_prompt):
     """Test language setup function."""
-    sources = {"language": {"supported": ["en", "de"], "current": "de"}}
+    sources = {"language": {"supported": ["en", "de"], "default": "de"}}
     setup_language(sources)
     
     # Should have called prompt
     mock_prompt.assert_called()
     # Language should be updated
-    assert sources["language"]["current"] == "en"
+    assert sources["language"]["default"] == "en"
 
 
 @patch("setup.prompt_bool", side_effect=[True, False])
