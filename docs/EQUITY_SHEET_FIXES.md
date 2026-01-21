@@ -46,20 +46,41 @@
 7. **Verify:** After editing, click cell → formula bar should show `1.175` (not `"117.5%"` with quotes)
 
 **Option B: Sheets API fix (requires Sheets API enabled)**
-```bash
-# Enable Sheets API first:
-# https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=831892255935
 
-# Then use gog CLI with USER_ENTERED mode (important!)
+**Prerequisites:**
+1. Enable Sheets API: https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=831892255935
+2. Ensure column Q is formatted as Percent (do once before any API writes):
+   - Via browser: Select column Q → Format → Number → Percent
+   - Via API: Use `batchUpdate` with `repeatCell` + `numberFormat` (see below)
+
+**Using gog CLI:**
+```bash
+# gog CLI uses USER_ENTERED by default (parses "117.5%" as numeric)
 gog-shapescale --account martin@shapescale.com sheets update \
   1lTpdbDjqW40qe4YUvk_1vBzKYLUNrmLZYyQN-7HmFJg \
   'Equity!Q5' '117.5%'
-
-# Note: By default, gog CLI uses USER_ENTERED input mode, which:
-# - Parses "117.5%" as numeric percentage (0.1175 internally)
-# - If it used RAW mode instead, "117.5%" would store as text → still causes errors
-# - Verify after writing: cell should show numeric percentage, not text with quotes
 ```
+
+**Using Sheets API directly (curl/Python):**
+```bash
+# CRITICAL: Specify valueInputOption=USER_ENTERED explicitly
+curl -X PUT \
+  "https://sheets.googleapis.com/v4/spreadsheets/SHEET_ID/values/Equity!Q5?valueInputOption=USER_ENTERED" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"values": [["117.5%"]]}'
+
+# Python example:
+service.spreadsheets().values().update(
+    spreadsheetId=SHEET_ID,
+    range='Equity!Q5',
+    valueInputOption='USER_ENTERED',  # Parse as Sheets would
+    body={'values': [['117.5%']]}
+).execute()
+```
+
+**Verify after writing:**
+- Click cell → formula bar should show `1.175` (numeric)
+- If formula bar shows `"117.5%"` with quotes → stored as text, still causes errors
 
 ### Impact
 
