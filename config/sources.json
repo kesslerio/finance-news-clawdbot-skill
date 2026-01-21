@@ -8,7 +8,9 @@
     },
     "barrons": {
       "name": "Barron's",
-      "main": "https://www.barrons.com/market-data/rss/articles"
+      "enabled": false,
+      "main": "https://www.barrons.com/market-data/rss/articles",
+      "note": "Requires subscription - enable after adding credentials"
     },
     "cnbc": {
       "name": "CNBC",

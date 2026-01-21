@@ -123,13 +123,17 @@ def fetch_all_news(args):
     
     # Fetch RSS feeds
     for source_id, feeds in sources['rss_feeds'].items():
+        # Skip disabled sources
+        if not feeds.get('enabled', True):
+            continue
+            
         news['sources'][source_id] = {
             'name': feeds.get('name', source_id),
             'articles': []
         }
         
         for feed_name, feed_url in feeds.items():
-            if feed_name == 'name':
+            if feed_name in ('name', 'enabled', 'note'):
                 continue
             
             articles = fetch_rss(feed_url, args.limit)
