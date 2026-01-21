@@ -79,18 +79,21 @@ def fetch_rss(url: str, limit: int = 10) -> list[dict]:
     """Fetch and parse RSS/Atom feed using feedparser."""
     try:
         # Use feedparser to handle both RSS and Atom formats
-        parsed = feedparser.parse(url, agent='Clawdbot/1.0')
+        parsed = feedparser.parse(url)
         
         items = []
         for entry in parsed.entries[:limit]:
-            # Handle both RSS and Atom formats
-            title = entry.get('title', '')
+            # Skip entries without title or link
+            title = entry.get('title', '').strip()
+            if not title:
+                continue
             
             # Link handling: Atom uses 'link' dict, RSS uses string
-            if isinstance(entry.get('link'), dict):
-                link = entry.link.get('href', '')
-            else:
-                link = entry.get('link', '')
+            link = entry.get('link', '')
+            if isinstance(link, dict):
+                link = link.get('href', '').strip()
+            if not link:
+                continue
             
             # Date handling: different formats across feeds
             published = entry.get('published', '') or entry.get('updated', '')
@@ -101,8 +104,8 @@ def fetch_rss(url: str, limit: int = 10) -> list[dict]:
             items.append({
                 'title': title,
                 'link': link,
-                'date': published,
-                'description': (description or '')[:200]
+                'date': published.strip() if published else '',
+                'description': (description or '')[:200].strip()
             })
         
         return items
