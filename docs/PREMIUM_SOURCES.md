@@ -32,7 +32,10 @@ If you have subscriptions and want premium content, follow the steps below.
 
 - Active WSJ or Barron's subscription
 - Browser with active login session (Chrome/Firefox)
-- **Note:** Code examples use `requests` library (not currently in requirements.txt)
+- **Option B only:** Install `requests` library if needed:
+  ```bash
+  pip install requests
+  ```
 
 ### Step 1: Export Cookies from Browser
 
@@ -110,12 +113,12 @@ def fetch_rss(url: str, limit: int = 10) -> list[dict]:
 
 **Option B: Use requests library instead of urllib**
 
-Replace `urllib` with `requests` for easier cookie handling:
+Replace `urllib` with `requests` for easier cookie handling (maintains API signature):
 
 ```python
 import requests
 
-def fetch_rss(url: str, cookies_dict: dict = None) -> list[dict]:
+def fetch_rss(url: str, limit: int = 10, cookies_dict: dict = None) -> list[dict]:
     response = requests.get(url, cookies=cookies_dict, timeout=10)
     response.raise_for_status()
     # ... parse with feedparser
@@ -125,11 +128,14 @@ def fetch_rss(url: str, cookies_dict: dict = None) -> list[dict]:
 
 **Critical: Do NOT commit cookies to git**
 
-1. **Add to `.gitignore`** (not currently included):
+1. **`.gitignore` already includes cookie files:**
+   - `config/cookies.json`
+   - `*.cookie`
+   - No action needed (already configured)
+
+2. **Set restrictive file permissions:**
    ```bash
-   echo "config/cookies.json" >> .gitignore
-   echo "*.cookie" >> .gitignore
-   git add .gitignore && git commit -m "chore: gitignore cookie files"
+   chmod 600 config/cookies.json
    ```
 
 2. **Set restrictive file permissions:**
