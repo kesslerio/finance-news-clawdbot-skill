@@ -86,4 +86,4 @@ Briefings are sent to your configured WhatsApp group in German.
 
 ## License
 
-MIT
+Apache 2.0 - See [LICENSE](LICENSE) file for details.
