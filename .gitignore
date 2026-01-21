@@ -1,0 +1,19 @@
+# Cache files
+cache/
+*.pyc
+__pycache__/
+
+# Environment
+.env
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

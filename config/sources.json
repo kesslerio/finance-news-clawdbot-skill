@@ -1,0 +1,45 @@
+{
+  "rss_feeds": {
+    "wsj": {
+      "name": "Wall Street Journal",
+      "markets": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
+      "business": "https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml",
+      "world": "https://feeds.a.dj.com/rss/RSSWorldNews.xml"
+    },
+    "barrons": {
+      "name": "Barron's",
+      "main": "https://www.barrons.com/market-data/rss/articles"
+    },
+    "cnbc": {
+      "name": "CNBC",
+      "top": "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+      "markets": "https://www.cnbc.com/id/20910258/device/rss/rss.html",
+      "tech": "https://www.cnbc.com/id/19854910/device/rss/rss.html"
+    },
+    "yahoo": {
+      "name": "Yahoo Finance",
+      "top": "https://finance.yahoo.com/news/rssindex"
+    }
+  },
+  "markets": {
+    "us": {
+      "name": "US Markets",
+      "indices": ["^GSPC", "^DJI", "^IXIC"],
+      "index_names": {"^GSPC": "S&P 500", "^DJI": "Dow Jones", "^IXIC": "NASDAQ"}
+    },
+    "europe": {
+      "name": "Europe",
+      "indices": ["^GDAXI", "^STOXX50E", "^FTSE"],
+      "index_names": {"^GDAXI": "DAX", "^STOXX50E": "STOXX 50", "^FTSE": "FTSE 100"}
+    },
+    "japan": {
+      "name": "Japan",
+      "indices": ["^N225"],
+      "index_names": {"^N225": "Nikkei 225"}
+    }
+  },
+  "language": {
+    "default": "de",
+    "supported": ["de", "en"]
+  }
+}

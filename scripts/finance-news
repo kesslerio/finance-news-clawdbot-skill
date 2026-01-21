@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+# Finance News CLI - Main entry point
+# Usage: finance-news <command> [options]
+
+set -e
+
+# Resolve symlinks to find actual script directory
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+  DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+
+usage() {
+    cat << EOF
+📈 Finance News CLI
+
+Usage: finance-news <command> [options]
+
+Commands:
+  setup                           Interactive setup wizard
+  config                          Show current configuration
+  
+  briefing [--morning|--evening]  Generate market briefing
+  market                          Market overview (indices + headlines)
+  portfolio                       News for portfolio stocks
+  news <SYMBOL>                   News for specific ticker
+  
+  portfolio-list                  List portfolio stocks
+  portfolio-add <SYMBOL>          Add stock to portfolio
+  portfolio-remove <SYMBOL>       Remove stock from portfolio
+  portfolio-import <file.csv>     Import portfolio from CSV
+
+Options:
+  --lang <de|en>     Output language (default: de)
+  --json             Output as JSON
+  --send             Send to WhatsApp group
+  --help             Show this help
+
+Examples:
+  finance-news briefing --morning
+  finance-news market --lang en
+  finance-news news AAPL
+  finance-news portfolio-add NVDA --name "NVIDIA Corporation" --category Tech
+EOF
+}
+
+case "${1:-}" in
+  briefing)
+    shift
+    python3 "$SCRIPT_DIR/briefing.py" "$@"
+    ;;
+  
+  market)
+    shift
+    python3 "$SCRIPT_DIR/fetch_news.py" market "$@"
+    ;;
+  
+  portfolio)
+    shift
+    python3 "$SCRIPT_DIR/fetch_news.py" portfolio "$@"
+    ;;
+  
+  news)
+    shift
+    if [[ -z "$1" ]]; then
+      echo "❌ Usage: finance-news news <SYMBOL>"
+      exit 1
+    fi
+    # Fetch news for specific ticker
+    symbol="$1"
+    shift
+    python3 -c "
+import sys
+sys.path.insert(0, '$SCRIPT_DIR')
+from fetch_news import fetch_ticker_news
+import json
+
+articles = fetch_ticker_news('$symbol', 10)
+print(f'\n📰 News for $symbol\n')
+for a in articles:
+    print(f\"• {a['title']}\")
+    print(f\"  {a['link']}\n\")
+"
+    ;;
+  
+  portfolio-list)
+    python3 "$SCRIPT_DIR/portfolio.py" list
+    ;;
+  
+  portfolio-add)
+    shift
+    python3 "$SCRIPT_DIR/portfolio.py" add "$@"
+    ;;
+  
+  portfolio-remove)
+    shift
+    python3 "$SCRIPT_DIR/portfolio.py" remove "$@"
+    ;;
+  
+  portfolio-import)
+    shift
+    python3 "$SCRIPT_DIR/portfolio.py" import "$@"
+    ;;
+  
+  portfolio-create)
+    python3 "$SCRIPT_DIR/portfolio.py" create
+    ;;
+  
+  setup)
+    shift
+    python3 "$SCRIPT_DIR/setup.py" "$@"
+    ;;
+  
+  setup-wizard)
+    python3 "$SCRIPT_DIR/setup.py" wizard
+    ;;
+  
+  config)
+    python3 "$SCRIPT_DIR/setup.py" show
+    ;;
+  
+  --help|-h|help|"")
+    usage
+    ;;
+  
+  *)
+    echo "❌ Unknown command: $1"
+    echo "Run 'finance-news --help' for usage."
+    exit 1
+    ;;
+esac
