@@ -17,42 +17,13 @@ from research import generate_research_content
 SCRIPT_DIR = Path(__file__).parent
 CONFIG_DIR = SCRIPT_DIR.parent / "config"
 
+LANG_PROMPTS = {
+    "de": "Antworte auf Deutsch.",
+    "en": "Respond in English."
+}
 
-def load_config():
-    """Load source configuration."""
-    with open(CONFIG_DIR / "sources.json", 'r') as f:
-        return json.load(f)
-
-
-def extract_agent_reply(raw: str) -> str:
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        return raw.strip()
-
-    for key in ("reply", "message", "text", "output", "result"):
-        if isinstance(data, dict) and key in data and isinstance(data[key], str):
-            return data[key].strip()
-    if isinstance(data, dict) and "messages" in data:
-        messages = data.get("messages", [])
-        if messages:
-            last = messages[-1]
-            if isinstance(last, dict):
-                text = last.get("text") or last.get("message")
-                if isinstance(text, str):
-                    return text.strip()
-    return raw.strip()
-
-
-def summarize_with_claude(content: str, language: str = "de", style: str = "briefing") -> str:
-    """Generate AI summary using Claude via Clawdbot agent."""
-    lang_prompts = {
-        "de": "Antworte auf Deutsch.",
-        "en": "Respond in English."
-    }
-
-    style_prompts = {
-        "briefing": """Du bist ein Finanzanalyst, der einen prägnanten Markt-Briefing erstellt.
+STYLE_PROMPTS = {
+    "briefing": """Du bist ein Finanzanalyst, der einen prägnanten Markt-Briefing erstellt.
 Fasse die wichtigsten Punkte zusammen:
 - Marktstimmung (bullisch/bärisch/neutral)
 - Top 3 wichtigste Nachrichten
@@ -61,7 +32,7 @@ Fasse die wichtigsten Punkte zusammen:
 
 Halte es unter 200 Wörtern. Verwende Emojis sparsam für Lesbarkeit.""",
 
-        "analysis": """Du bist ein erfahrener Finanzanalyst.
+    "analysis": """Du bist ein erfahrener Finanzanalyst.
 Analysiere die Nachrichten und gib:
 - Detaillierte Marktanalyse
 - Sektortrends
@@ -70,13 +41,53 @@ Analysiere die Nachrichten und gib:
 
 Sei professionell aber verständlich.""",
 
-        "headlines": """Fasse die wichtigsten Schlagzeilen in 5 Bulletpoints zusammen.
+    "headlines": """Fasse die wichtigsten Schlagzeilen in 5 Bulletpoints zusammen.
 Jeder Punkt sollte maximal 15 Wörter haben."""
-    }
+}
 
-    prompt = f"""{style_prompts.get(style, style_prompts['briefing'])}
 
-{lang_prompts.get(language, lang_prompts['de'])}
+def load_config():
+    """Load source configuration."""
+    with open(CONFIG_DIR / "sources.json", 'r') as f:
+        return json.load(f)
+
+
+def extract_agent_reply(raw: str) -> str:
+    data = None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        for line in reversed(raw.splitlines()):
+            line = line.strip()
+            if not (line.startswith("{") and line.endswith("}")):
+                continue
+            try:
+                data = json.loads(line)
+                break
+            except json.JSONDecodeError:
+                continue
+
+    if isinstance(data, dict):
+        for key in ("reply", "message", "text", "output", "result"):
+            if key in data and isinstance(data[key], str):
+                return data[key].strip()
+        if "messages" in data:
+            messages = data.get("messages", [])
+            if messages:
+                last = messages[-1]
+                if isinstance(last, dict):
+                    text = last.get("text") or last.get("message")
+                    if isinstance(text, str):
+                        return text.strip()
+
+    return raw.strip()
+
+
+def summarize_with_claude(content: str, language: str = "de", style: str = "briefing") -> str:
+    """Generate AI summary using Claude via Clawdbot agent."""
+    prompt = f"""{STYLE_PROMPTS.get(style, STYLE_PROMPTS['briefing'])}
+
+{LANG_PROMPTS.get(language, LANG_PROMPTS['de'])}
 
 Nutze die folgenden Informationen für das Briefing:
 
@@ -113,37 +124,9 @@ Nutze die folgenden Informationen für das Briefing:
 def summarize_with_gemini(content: str, language: str = "de", style: str = "briefing") -> str:
     """Generate AI summary using Gemini CLI."""
     
-    lang_prompts = {
-        "de": "Antworte auf Deutsch.",
-        "en": "Respond in English."
-    }
-    
-    style_prompts = {
-        "briefing": """Du bist ein Finanzanalyst, der einen prägnanten Markt-Briefing erstellt.
-Fasse die wichtigsten Punkte zusammen:
-- Marktstimmung (bullisch/bärisch/neutral)
-- Top 3 wichtigste Nachrichten
-- Auswirkungen auf das Portfolio
-- Kurze Handlungsempfehlung
+    prompt = f"""{STYLE_PROMPTS.get(style, STYLE_PROMPTS['briefing'])}
 
-Halte es unter 200 Wörtern. Verwende Emojis sparsam für Lesbarkeit.""",
-        
-        "analysis": """Du bist ein erfahrener Finanzanalyst.
-Analysiere die Nachrichten und gib:
-- Detaillierte Marktanalyse
-- Sektortrends
-- Risiken und Chancen
-- Konkrete Empfehlungen
-
-Sei professionell aber verständlich.""",
-        
-        "headlines": """Fasse die wichtigsten Schlagzeilen in 5 Bulletpoints zusammen.
-Jeder Punkt sollte maximal 15 Wörter haben."""
-    }
-    
-    prompt = f"""{style_prompts.get(style, style_prompts['briefing'])}
-
-{lang_prompts.get(language, lang_prompts['de'])}
+{LANG_PROMPTS.get(language, LANG_PROMPTS['de'])}
 
 Hier sind die aktuellen Marktnachrichten:
 
