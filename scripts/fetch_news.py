@@ -172,6 +172,17 @@ def fetch_market_data(symbols: list[str]) -> dict:
             )
             if result.returncode == 0:
                 data = json.loads(result.stdout)
+                
+                # Calculate change_percent if null (openbb-quote doesn't always provide it)
+                if data.get('change_percent') is None and data.get('price') and data.get('prev_close'):
+                    price = data['price']
+                    prev_close = data['prev_close']
+                    
+                    # Guard against division by zero (rare but possible for new listings or data errors)
+                    if prev_close != 0:
+                        data['change_percent'] = ((price - prev_close) / prev_close) * 100
+                    # If prev_close is 0, leave change_percent as None (no valid calculation)
+                
                 results[symbol] = data
         except subprocess.TimeoutExpired:
             print(f"⚠️ Timeout fetching {symbol}", file=sys.stderr)
