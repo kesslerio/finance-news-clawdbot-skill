@@ -56,7 +56,7 @@ def get_openbb_binary() -> str:
         "Installation options:\n"
         "1. Install via pip: pip install openbb\n"
         "2. Use existing install: export OPENBB_QUOTE_BIN=/path/to/openbb-quote\n"
-        "3. Add to PATH: export PATH=$PATH:/home/art/.local/bin\n\n"
+        "3. Add to PATH: export PATH=$PATH:$HOME/.local/bin\n\n"
         "See: https://github.com/kesslerio/finance-news-clawdbot-skill#dependencies"
     )
 
