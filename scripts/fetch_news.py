@@ -68,11 +68,16 @@ def fetch_market_data(symbols: list[str]) -> dict:
                 capture_output=True,
                 text=True,
                 stdin=subprocess.DEVNULL,
-                timeout=30
+                timeout=30,
+                check=False
             )
             if result.returncode == 0:
                 data = json.loads(result.stdout)
                 results[symbol] = data
+        except subprocess.TimeoutExpired:
+            print(f"⚠️ Timeout fetching {symbol}", file=sys.stderr)
+        except json.JSONDecodeError as e:
+            print(f"⚠️ Invalid JSON from openbb-quote for {symbol}: {e}", file=sys.stderr)
         except Exception as e:
             print(f"⚠️ Error fetching {symbol}: {e}", file=sys.stderr)
     
@@ -231,19 +236,28 @@ def fetch_market_news(args):
 def get_portfolio_news(limit: int = 5, max_stocks: int = 5) -> dict:
     """Get news for portfolio stocks as data."""
     # Get symbols from portfolio
-    result = subprocess.run(
-        ['python3', SCRIPT_DIR / 'portfolio.py', 'symbols'],
-        capture_output=True,
-        text=True,
-        stdin=subprocess.DEVNULL,
-        timeout=10
-    )
+    try:
+        result = subprocess.run(
+            ['python3', str(SCRIPT_DIR / 'portfolio.py'), 'symbols'],
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            timeout=10,
+            check=False
+        )
+        
+        if result.returncode != 0:
+            print(f"❌ Failed to load portfolio: {result.stderr}", file=sys.stderr)
+            return {'fetched_at': datetime.now().isoformat(), 'stocks': {}}
+        
+        symbols = result.stdout.strip().split(',')
     
-    if result.returncode != 0:
-        print("❌ Failed to load portfolio", file=sys.stderr)
-        sys.exit(1)
-    
-    symbols = result.stdout.strip().split(',')
+    except subprocess.TimeoutExpired:
+        print("❌ Portfolio fetch timeout", file=sys.stderr)
+        return {'fetched_at': datetime.now().isoformat(), 'stocks': {}}
+    except Exception as e:
+        print(f"❌ Portfolio error: {e}", file=sys.stderr)
+        return {'fetched_at': datetime.now().isoformat(), 'stocks': {}}
     
     # Limit to max 5 stocks for briefings (performance)
     if max_stocks and len(symbols) > max_stocks:
