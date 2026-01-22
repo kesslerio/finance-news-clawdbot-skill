@@ -121,6 +121,45 @@ Nutze die folgenden Informationen für das Briefing:
     return f"⚠️ Claude briefing error: {stderr}"
 
 
+def summarize_with_minimax(content: str, language: str = "de", style: str = "briefing") -> str:
+    """Generate AI summary using MiniMax model via clawdbot agent."""
+    prompt = f"""{STYLE_PROMPTS.get(style, STYLE_PROMPTS['briefing'])}
+
+{LANG_PROMPTS.get(language, LANG_PROMPTS['de'])}
+
+Nutze die folgenden Informationen für das Briefing:
+
+{content}
+"""
+
+    try:
+        result = subprocess.run(
+            [
+                'clawdbot', 'agent',
+                '--session-id', 'finance-news-briefing',
+                '--message', prompt,
+                '--model', 'minimax',
+                '--json',
+                '--timeout', '120'
+            ],
+            capture_output=True,
+            text=True,
+            timeout=150
+        )
+    except subprocess.TimeoutExpired:
+        return "⚠️ MiniMax briefing error: timeout"
+    except FileNotFoundError:
+        return "⚠️ MiniMax briefing error: clawdbot CLI not found"
+    except OSError as exc:
+        return f"⚠️ MiniMax briefing error: {exc}"
+
+    if result.returncode == 0:
+        return extract_agent_reply(result.stdout)
+
+    stderr = result.stderr.strip() or "unknown error"
+    return f"⚠️ MiniMax briefing error: {stderr}"
+
+
 def summarize_with_gemini(content: str, language: str = "de", style: str = "briefing") -> str:
     """Generate AI summary using Gemini CLI."""
     
@@ -252,14 +291,28 @@ def generate_briefing(args):
     else:
         content = raw_content
 
-    print("🤖 Generating AI summary with Claude...", file=sys.stderr)
+    model = getattr(args, 'model', 'claude')
+    print(f"🤖 Generating AI summary with {model}...", file=sys.stderr)
 
-    # Generate summary
-    summary = summarize_with_claude(content, language, args.style)
-    if summary.startswith("⚠️ Claude briefing error"):
-        print(summary, file=sys.stderr)
-        print("⚠️ Claude failed; falling back to Gemini summarizer", file=sys.stderr)
+    # Generate summary based on selected model
+    if model == 'minimax':
+        summary = summarize_with_minimax(content, language, args.style)
+        if summary.startswith("⚠️ MiniMax briefing error"):
+            print(summary, file=sys.stderr)
+            print("⚠️ MiniMax failed; falling back to Claude...", file=sys.stderr)
+            summary = summarize_with_claude(content, language, args.style)
+            if summary.startswith("⚠️ Claude briefing error"):
+                print(summary, file=sys.stderr)
+                print("⚠️ Claude also failed; falling back to Gemini...", file=sys.stderr)
+                summary = summarize_with_gemini(content, language, args.style)
+    elif model == 'gemini':
         summary = summarize_with_gemini(content, language, args.style)
+    else:  # claude (default)
+        summary = summarize_with_claude(content, language, args.style)
+        if summary.startswith("⚠️ Claude briefing error"):
+            print(summary, file=sys.stderr)
+            print("⚠️ Claude failed; falling back to Gemini summarizer", file=sys.stderr)
+            summary = summarize_with_gemini(content, language, args.style)
     
     # Format output
     time_str = datetime.now().strftime("%H:%M")
@@ -297,12 +350,14 @@ def generate_briefing(args):
 def main():
     parser = argparse.ArgumentParser(description='News Summarizer')
     parser.add_argument('--lang', choices=['de', 'en'], help='Output language')
-    parser.add_argument('--style', choices=['briefing', 'analysis', 'headlines'], 
+    parser.add_argument('--style', choices=['briefing', 'analysis', 'headlines'],
                         default='briefing', help='Summary style')
-    parser.add_argument('--time', choices=['morning', 'evening'], 
+    parser.add_argument('--time', choices=['morning', 'evening'],
                         default='morning', help='Briefing type')
+    parser.add_argument('--model', choices=['claude', 'minimax', 'gemini'],
+                        default='claude', help='AI model for summarization')
     parser.add_argument('--json', action='store_true', help='Output as JSON')
-    
+
     args = parser.parse_args()
     generate_briefing(args)
 
