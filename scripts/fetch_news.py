@@ -23,6 +23,28 @@ CACHE_DIR = SCRIPT_DIR.parent / "cache"
 CACHE_DIR.mkdir(exist_ok=True)
 
 
+def ensure_portfolio_config():
+    """Copy portfolio.csv.example to portfolio.csv if real file doesn't exist."""
+    example_file = CONFIG_DIR / "portfolio.csv.example"
+    real_file = CONFIG_DIR / "portfolio.csv"
+
+    if real_file.exists():
+        return
+
+    if example_file.exists():
+        try:
+            shutil.copy(example_file, real_file)
+            print(f"📋 Created portfolio.csv from example", file=sys.stderr)
+        except PermissionError:
+            print(f"⚠️ Cannot create portfolio.csv (read-only environment)", file=sys.stderr)
+    else:
+        print(f"⚠️ No portfolio.csv or portfolio.csv.example found", file=sys.stderr)
+
+
+# Initialize user config (copy example if needed)
+ensure_portfolio_config()
+
+
 def get_openbb_binary() -> str:
     """
     Find openbb-quote binary.
