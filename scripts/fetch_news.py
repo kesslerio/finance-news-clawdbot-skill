@@ -569,18 +569,29 @@ def get_portfolio_only_news(limit_per_ticker: int = 5) -> dict:
 
 def web_search_news(symbol: str, limit: int = 5) -> list[dict]:
     """Fallback: search for news via web search."""
+    articles = []
     try:
         result = subprocess.run(
-            ['clawdbot', 'memory', 'search', f'{symbol} stock news today', '--max-results', str(limit)],
+            ['web-search', f'{symbol} stock news today', '--count', str(limit)],
             capture_output=True,
             text=True,
             timeout=30,
             check=False
         )
-        # Parse results - return empty for now, real impl would parse memory results
-    except Exception:
-        pass
-    return []
+        if result.returncode == 0:
+            import json as json_mod
+            data = json_mod.loads(result.stdout)
+            for item in data.get('results', [])[:limit]:
+                articles.append({
+                    'title': item.get('title', ''),
+                    'link': item.get('url', ''),
+                    'source': item.get('site', 'Web'),
+                    'date': '',
+                    'description': ''
+                })
+    except Exception as e:
+        print(f"⚠️ Web search failed for {symbol}: {e}", file=sys.stderr)
+    return articles
 
 
 def fetch_portfolio_only(args):
