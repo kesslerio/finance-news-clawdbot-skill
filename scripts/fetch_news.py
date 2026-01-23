@@ -16,7 +16,6 @@ import urllib.request
 import urllib.error
 
 import feedparser
-import certifi
 
 SCRIPT_DIR = Path(__file__).parent
 CONFIG_DIR = SCRIPT_DIR.parent / "config"
@@ -25,7 +24,12 @@ CACHE_DIR = SCRIPT_DIR.parent / "cache"
 # Ensure cache directory exists
 CACHE_DIR.mkdir(exist_ok=True)
 
-SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+CA_FILE = (
+    os.environ.get("SSL_CERT_FILE")
+    or ("/etc/ssl/certs/ca-bundle.crt" if os.path.exists("/etc/ssl/certs/ca-bundle.crt") else None)
+    or ("/etc/ssl/certs/ca-certificates.crt" if os.path.exists("/etc/ssl/certs/ca-certificates.crt") else None)
+)
+SSL_CONTEXT = ssl.create_default_context(cafile=CA_FILE) if CA_FILE else ssl.create_default_context()
 
 
 class PortfolioError(Exception):

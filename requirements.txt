@@ -1,2 +1,1 @@
 feedparser>=6.0.11
-certifi>=2024.2.2
