@@ -53,6 +53,8 @@ finance-news portfolio
    finance-news setup
    ```
 
+The `finance-news` CLI will auto-use `.venv` if present.
+
 ## Configuration
 
 The setup wizard (`finance-news setup`) lets you configure:
