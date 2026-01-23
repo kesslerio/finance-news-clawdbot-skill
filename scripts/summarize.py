@@ -445,12 +445,24 @@ def generate_briefing(args):
         if model == 'minimax':
             summary = summarize_with_minimax(content, language, args.style, deadline=deadline)
             if summary.startswith("⚠️ MiniMax briefing error"):
+                print(summary, file=sys.stderr)
+                print("⚠️ MiniMax failed; falling back to Claude...", file=sys.stderr)
                 summary = summarize_with_claude(content, language, args.style, deadline=deadline)
+                if summary.startswith("⚠️ Claude briefing error"):
+                    print(summary, file=sys.stderr)
+                    print("⚠️ Claude also failed; falling back to Gemini...", file=sys.stderr)
+                    summary = summarize_with_gemini(content, language, args.style, deadline=deadline)
         elif model == 'gemini':
             summary = summarize_with_gemini(content, language, args.style, deadline=deadline)
+            if summary.startswith("⚠️ Gemini"):
+                print(summary, file=sys.stderr)
+                print("⚠️ Gemini failed; falling back to Claude...", file=sys.stderr)
+                summary = summarize_with_claude(content, language, args.style, deadline=deadline)
         else:  # claude (default)
             summary = summarize_with_claude(content, language, args.style, deadline=deadline)
             if summary.startswith("⚠️ Claude briefing error"):
+                print(summary, file=sys.stderr)
+                print("⚠️ Claude failed; falling back to Gemini summarizer", file=sys.stderr)
                 summary = summarize_with_gemini(content, language, args.style, deadline=deadline)
     
     # Format output
