@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 import pytest
 from unittest.mock import Mock, patch
 from fetch_news import fetch_rss, _get_best_feed_url
+from utils import clamp_timeout, compute_deadline
 
 
 @pytest.fixture
@@ -24,12 +25,13 @@ def test_fetch_rss_success(sample_rss_content):
         mock_response.__enter__.return_value = mock_response
         mock_urlopen.return_value = mock_response
         
-        articles = fetch_rss("https://example.com/feed.xml")
+        articles = fetch_rss("https://example.com/feed.xml", timeout=7)
         
         assert len(articles) == 2
         assert articles[0]["title"] == "Apple Stock Rises 5%"
         assert articles[1]["title"] == "Tesla Announces New Model"
         assert "apple-rises" in articles[0]["link"]
+        assert mock_urlopen.call_args.kwargs["timeout"] == 7
 
 
 def test_fetch_rss_network_error():
@@ -87,3 +89,22 @@ def test_get_best_feed_url_skips_non_urls():
     
     url = _get_best_feed_url(source)
     assert url == "https://example.com/rss.xml"
+
+
+def test_clamp_timeout_respects_deadline(monkeypatch):
+    start = 100.0
+    monkeypatch.setattr("utils.time.monotonic", lambda: start)
+    deadline = compute_deadline(5)
+    monkeypatch.setattr("utils.time.monotonic", lambda: 103.0)
+
+    assert clamp_timeout(30, deadline) == 2
+
+
+def test_clamp_timeout_deadline_exceeded(monkeypatch):
+    start = 200.0
+    monkeypatch.setattr("utils.time.monotonic", lambda: start)
+    deadline = compute_deadline(1)
+    monkeypatch.setattr("utils.time.monotonic", lambda: 205.0)
+
+    with pytest.raises(TimeoutError):
+        clamp_timeout(30, deadline)

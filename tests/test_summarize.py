@@ -47,6 +47,9 @@ def test_generate_briefing_auto_time_evening(capsys, monkeypatch):
             "model": "claude",
             "json": False,
             "research": False,
+            "deadline": None,
+            "fast": False,
+            "llm": False,
         },
     )()
 
