@@ -11,6 +11,7 @@ import subprocess
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+import ssl
 import urllib.request
 import urllib.error
 
@@ -22,6 +23,13 @@ CACHE_DIR = SCRIPT_DIR.parent / "cache"
 
 # Ensure cache directory exists
 CACHE_DIR.mkdir(exist_ok=True)
+
+CA_FILE = (
+    os.environ.get("SSL_CERT_FILE")
+    or ("/etc/ssl/certs/ca-bundle.crt" if os.path.exists("/etc/ssl/certs/ca-bundle.crt") else None)
+    or ("/etc/ssl/certs/ca-certificates.crt" if os.path.exists("/etc/ssl/certs/ca-certificates.crt") else None)
+)
+SSL_CONTEXT = ssl.create_default_context(cafile=CA_FILE) if CA_FILE else ssl.create_default_context()
 
 
 class PortfolioError(Exception):
@@ -139,7 +147,7 @@ def fetch_rss(url: str, limit: int = 10) -> list[dict]:
     try:
         # Fetch feed content first (handles SSL/certs properly)
         req = urllib.request.Request(url, headers={'User-Agent': 'Clawdbot/1.0'})
-        with urllib.request.urlopen(req, timeout=15) as response:
+        with urllib.request.urlopen(req, timeout=15, context=SSL_CONTEXT) as response:
             content = response.read()
         
         # Parse with feedparser (handles RSS and Atom formats)
@@ -199,9 +207,15 @@ def fetch_market_data(symbols: list[str]) -> dict:
             )
             if result.returncode == 0:
                 data = json.loads(result.stdout)
+
+                # Normalize provider output
+                if isinstance(data, dict) and "results" in data and isinstance(data["results"], list):
+                    data = data["results"][0] if data["results"] else {}
+                elif isinstance(data, list):
+                    data = data[0] if data else {}
                 
                 # Calculate change_percent if null (openbb-quote doesn't always provide it)
-                if data.get('change_percent') is None and data.get('price') and data.get('prev_close'):
+                if isinstance(data, dict) and data.get('change_percent') is None and data.get('price') and data.get('prev_close'):
                     price = data['price']
                     prev_close = data['prev_close']
                     
