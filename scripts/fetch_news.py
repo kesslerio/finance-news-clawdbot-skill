@@ -9,7 +9,7 @@ import os
 import shutil
 import subprocess
 import sys
-import time
+from utils import clamp_timeout, compute_deadline, time_left
 from datetime import datetime, timedelta
 from pathlib import Path
 import ssl
@@ -143,30 +143,6 @@ def _get_best_feed_url(feeds: dict) -> str | None:
     return None
 
 
-def _compute_deadline(deadline_sec: int | None) -> float | None:
-    if deadline_sec is None:
-        return None
-    if deadline_sec <= 0:
-        return None
-    return time.monotonic() + deadline_sec
-
-
-def _time_left(deadline: float | None) -> int | None:
-    if deadline is None:
-        return None
-    remaining = int(deadline - time.monotonic())
-    return remaining
-
-
-def _clamp_timeout(default_timeout: int, deadline: float | None, minimum: int = 1) -> int:
-    remaining = _time_left(deadline)
-    if remaining is None:
-        return default_timeout
-    if remaining <= 0:
-        raise TimeoutError("Deadline exceeded")
-    return max(min(default_timeout, remaining), minimum)
-
-
 def fetch_rss(url: str, limit: int = 10, timeout: int = 15) -> list[dict]:
     """Fetch and parse RSS/Atom feed using feedparser."""
     try:
@@ -223,7 +199,7 @@ def fetch_market_data(symbols: list[str], timeout: int = 30, deadline: float | N
     for symbol in symbols:
         try:
             try:
-                effective_timeout = _clamp_timeout(timeout, deadline)
+                effective_timeout = clamp_timeout(timeout, deadline)
             except TimeoutError:
                 return results
             result = subprocess.run(
@@ -360,7 +336,7 @@ def get_market_news(
     
     # Fetch market indices
     for region, config in sources['markets'].items():
-        if _time_left(deadline) is not None and _time_left(deadline) <= 0:
+        if time_left(deadline) is not None and time_left(deadline) <= 0:
             break
         if regions is not None and region not in regions:
             continue
@@ -375,7 +351,7 @@ def get_market_news(
             symbols = symbols[:max_indices_per_region]
 
         for symbol in symbols:
-            if _time_left(deadline) is not None and _time_left(deadline) <= 0:
+            if time_left(deadline) is not None and time_left(deadline) <= 0:
                 break
             data = fetch_market_data([symbol], timeout=subprocess_timeout, deadline=deadline)
             if symbol in data:
@@ -386,14 +362,14 @@ def get_market_news(
     
     # Fetch top headlines from CNBC and Yahoo
     for source in ['cnbc', 'yahoo']:
-        if _time_left(deadline) is not None and _time_left(deadline) <= 0:
+        if time_left(deadline) is not None and time_left(deadline) <= 0:
             break
         if source in sources['rss_feeds']:
             feeds = sources['rss_feeds'][source]
             feed_url = _get_best_feed_url(feeds)
             if feed_url:
                 try:
-                    effective_timeout = _clamp_timeout(rss_timeout, deadline)
+                    effective_timeout = clamp_timeout(rss_timeout, deadline)
                 except TimeoutError:
                     break
                 articles = fetch_rss(feed_url, limit, timeout=effective_timeout)
@@ -406,7 +382,7 @@ def get_market_news(
 
 def fetch_market_news(args):
     """Fetch market overview (indices + top headlines)."""
-    deadline = _compute_deadline(args.deadline)
+    deadline = compute_deadline(args.deadline)
     result = get_market_news(args.limit, deadline=deadline)
     
     if args.json:
@@ -439,7 +415,7 @@ def get_portfolio_news(
         raise PortfolioError("Portfolio config missing: config/portfolio.csv")
     # Get symbols from portfolio
     try:
-        effective_timeout = _clamp_timeout(10, deadline)
+        effective_timeout = clamp_timeout(10, deadline)
         result = subprocess.run(
             ['python3', str(SCRIPT_DIR / 'portfolio.py'), 'symbols'],
             capture_output=True,
@@ -479,7 +455,7 @@ def get_portfolio_news(
     }
     
     for symbol in symbols:
-        if _time_left(deadline) is not None and _time_left(deadline) <= 0:
+        if time_left(deadline) is not None and time_left(deadline) <= 0:
             raise PortfolioError("Deadline exceeded while fetching portfolio news")
         if not symbol:
             continue
@@ -498,7 +474,7 @@ def get_portfolio_news(
 def fetch_portfolio_news(args):
     """Fetch news for portfolio stocks."""
     try:
-        deadline = _compute_deadline(args.deadline)
+    deadline = compute_deadline(args.deadline)
         news = get_portfolio_news(
             args.limit,
             args.max_stocks,

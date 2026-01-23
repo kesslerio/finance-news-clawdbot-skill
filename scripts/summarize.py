@@ -9,12 +9,12 @@ import json
 import os
 import subprocess
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
 
 from fetch_news import PortfolioError, get_market_news, get_portfolio_news
 from research import generate_research_content
+from utils import clamp_timeout, compute_deadline, time_left
 
 SCRIPT_DIR = Path(__file__).parent
 CONFIG_DIR = SCRIPT_DIR.parent / "config"
@@ -61,30 +61,6 @@ def load_config():
     """Load source configuration."""
     with open(CONFIG_DIR / "sources.json", 'r') as f:
         return json.load(f)
-
-
-def _compute_deadline(deadline_sec: int | None) -> float | None:
-    if deadline_sec is None:
-        return None
-    if deadline_sec <= 0:
-        return None
-    return time.monotonic() + deadline_sec
-
-
-def _time_left(deadline: float | None) -> int | None:
-    if deadline is None:
-        return None
-    remaining = int(deadline - time.monotonic())
-    return remaining
-
-
-def _clamp_timeout(default_timeout: int, deadline: float | None, minimum: int = 1) -> int:
-    remaining = _time_left(deadline)
-    if remaining is None:
-        return default_timeout
-    if remaining <= 0:
-        raise TimeoutError("Deadline exceeded")
-    return max(min(default_timeout, remaining), minimum)
 
 
 def extract_agent_reply(raw: str) -> str:
@@ -135,8 +111,8 @@ Use only the following information for the briefing:
 """
 
     try:
-        cli_timeout = _clamp_timeout(120, deadline)
-        proc_timeout = _clamp_timeout(150, deadline)
+        cli_timeout = clamp_timeout(120, deadline)
+        proc_timeout = clamp_timeout(150, deadline)
         result = subprocess.run(
             [
                 'clawdbot', 'agent',
@@ -182,8 +158,8 @@ Use only the following information for the briefing:
 """
 
     try:
-        cli_timeout = _clamp_timeout(120, deadline)
-        proc_timeout = _clamp_timeout(150, deadline)
+        cli_timeout = clamp_timeout(120, deadline)
+        proc_timeout = clamp_timeout(150, deadline)
         result = subprocess.run(
             [
                 'clawdbot', 'agent',
@@ -231,7 +207,7 @@ Here are the current market items:
 """
     
     try:
-        proc_timeout = _clamp_timeout(60, deadline)
+        proc_timeout = clamp_timeout(60, deadline)
         result = subprocess.run(
             ['gemini', prompt],
             capture_output=True,
@@ -375,7 +351,7 @@ def generate_briefing(args):
     env_deadline = os.environ.get("FINANCE_NEWS_DEADLINE_SEC")
     default_deadline = int(env_deadline) if env_deadline else 300
     deadline_sec = args.deadline if args.deadline is not None else default_deadline
-    deadline = _compute_deadline(deadline_sec)
+    deadline = compute_deadline(deadline_sec)
     rss_timeout = int(os.environ.get("FINANCE_NEWS_RSS_TIMEOUT_SEC", "15"))
     subprocess_timeout = int(os.environ.get("FINANCE_NEWS_SUBPROCESS_TIMEOUT_SEC", "30"))
 
@@ -431,7 +407,7 @@ def generate_briefing(args):
         print("⚠️ No headlines available; skipping summary generation", file=sys.stderr)
         return
 
-    if _time_left(deadline) is not None and _time_left(deadline) <= 0:
+    if time_left(deadline) is not None and time_left(deadline) <= 0:
         print("⚠️ Deadline exceeded; skipping summary generation", file=sys.stderr)
         return
 
