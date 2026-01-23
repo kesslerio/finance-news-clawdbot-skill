@@ -13,7 +13,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from fetch_news import get_market_news, get_portfolio_news
+from fetch_news import PortfolioError, get_market_news, get_portfolio_news
 
 SCRIPT_DIR = Path(__file__).parent
 CONFIG_DIR = SCRIPT_DIR.parent / "config"
@@ -196,10 +196,14 @@ def generate_research_report(args):
     )
     
     # Get portfolio news
-    portfolio_data = get_portfolio_news(
-        args.limit if hasattr(args, 'limit') else 5,
-        args.max_stocks if hasattr(args, 'max_stocks') else 10
-    )
+    try:
+        portfolio_data = get_portfolio_news(
+            args.limit if hasattr(args, 'limit') else 5,
+            args.max_stocks if hasattr(args, 'max_stocks') else 10
+        )
+    except PortfolioError as exc:
+        print(f"⚠️ Skipping portfolio: {exc}", file=sys.stderr)
+        portfolio_data = None
     
     # Build report
     focus_areas = None

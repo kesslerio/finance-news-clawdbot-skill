@@ -14,11 +14,7 @@ from pathlib import Path
 import urllib.request
 import urllib.error
 
-try:
-    import feedparser
-except ModuleNotFoundError:
-    print("❌ Missing dependency: feedparser. Install with: pip install -r requirements.txt", file=sys.stderr)
-    sys.exit(1)
+import feedparser
 
 SCRIPT_DIR = Path(__file__).parent
 CONFIG_DIR = SCRIPT_DIR.parent / "config"
@@ -26,6 +22,10 @@ CACHE_DIR = SCRIPT_DIR.parent / "cache"
 
 # Ensure cache directory exists
 CACHE_DIR.mkdir(exist_ok=True)
+
+
+class PortfolioError(Exception):
+    """Portfolio configuration or fetch error."""
 
 
 def ensure_portfolio_config():
@@ -374,11 +374,7 @@ def fetch_market_news(args):
 def get_portfolio_news(limit: int = 5, max_stocks: int = 5) -> dict:
     """Get news for portfolio stocks as data."""
     if not (CONFIG_DIR / "portfolio.csv").exists():
-        return {
-            'fetched_at': datetime.now().isoformat(),
-            'stocks': {},
-            'error': 'Portfolio config missing: config/portfolio.csv'
-        }
+        raise PortfolioError("Portfolio config missing: config/portfolio.csv")
     # Get symbols from portfolio
     try:
         result = subprocess.run(
@@ -392,36 +388,20 @@ def get_portfolio_news(limit: int = 5, max_stocks: int = 5) -> dict:
         
         if result.returncode != 0:
             print(f"❌ Failed to load portfolio: {result.stderr}", file=sys.stderr)
-            return {
-                'fetched_at': datetime.now().isoformat(),
-                'stocks': {},
-                'error': f"Portfolio load failed: {result.stderr}"
-            }
+            raise PortfolioError(f"Portfolio load failed: {result.stderr}")
         
-        symbols = result.stdout.strip().split(',')
+        symbols = [s.strip() for s in result.stdout.strip().split(',') if s.strip()]
+        if not symbols:
+            raise PortfolioError("No portfolio symbols found")
     
     except subprocess.TimeoutExpired:
         print("❌ Portfolio fetch timeout", file=sys.stderr)
-        return {
-            'fetched_at': datetime.now().isoformat(),
-            'stocks': {},
-            'error': 'Portfolio fetch timeout'
-        }
+        raise PortfolioError("Portfolio fetch timeout")
     except Exception as e:
         print(f"❌ Portfolio error: {e}", file=sys.stderr)
-        return {
-            'fetched_at': datetime.now().isoformat(),
-            'stocks': {},
-            'error': str(e)
-        }
+        raise PortfolioError(str(e))
     
-    # Limit to max 5 stocks for briefings (performance)
-    if not symbols or symbols == ['']:
-        return {
-            'fetched_at': datetime.now().isoformat(),
-            'stocks': {},
-            'error': 'No portfolio symbols found'
-        }
+    # Limit stocks for performance
 
     if max_stocks and len(symbols) > max_stocks:
         symbols = symbols[:max_stocks]
@@ -448,12 +428,11 @@ def get_portfolio_news(limit: int = 5, max_stocks: int = 5) -> dict:
 
 def fetch_portfolio_news(args):
     """Fetch news for portfolio stocks."""
-    news = get_portfolio_news(args.limit, args.max_stocks)
-    
-    # Check for errors (P2 fix: preserve non-zero exit on failure)
-    if 'error' in news:
+    try:
+        news = get_portfolio_news(args.limit, args.max_stocks)
+    except PortfolioError as exc:
         if not args.json:
-            print(f"\n❌ Error: {news['error']}", file=sys.stderr)
+            print(f"\n❌ Error: {exc}", file=sys.stderr)
         sys.exit(1)
     
     if args.json:

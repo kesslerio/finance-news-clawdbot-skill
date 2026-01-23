@@ -11,11 +11,12 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from fetch_news import get_market_news, get_portfolio_news
+from fetch_news import PortfolioError, get_market_news, get_portfolio_news
 from research import generate_research_content
 
 SCRIPT_DIR = Path(__file__).parent
 CONFIG_DIR = SCRIPT_DIR.parent / "config"
+DEFAULT_PORTFOLIO_SAMPLE_SIZE = 3
 
 LANG_PROMPTS = {
     "de": "Antworte auf Deutsch.",
@@ -252,8 +253,12 @@ def generate_briefing(args):
         max_indices_per_region=1
     )
     
-    # Get portfolio news (limit to 3 stocks max for performance)
-    portfolio_data = get_portfolio_news(2, 3)
+    # Get portfolio news (limit stocks for performance)
+    try:
+        portfolio_data = get_portfolio_news(2, DEFAULT_PORTFOLIO_SAMPLE_SIZE)
+    except PortfolioError as exc:
+        print(f"⚠️ Skipping portfolio: {exc}", file=sys.stderr)
+        portfolio_data = None
     
     # Build raw content for summarization
     content_parts = []
@@ -264,10 +269,8 @@ def generate_briefing(args):
             content_parts.append(format_headlines(market_data['headlines']))
 
     # Only include portfolio if fetch succeeded (no error key)
-    if portfolio_data and 'error' not in portfolio_data:
+    if portfolio_data:
         content_parts.append(format_portfolio_news(portfolio_data))
-    elif portfolio_data and 'error' in portfolio_data:
-        print(f"⚠️ Skipping portfolio: {portfolio_data['error']}", file=sys.stderr)
 
     raw_content = '\n\n'.join(content_parts)
 
