@@ -246,6 +246,69 @@ def format_portfolio_news(portfolio_data: dict) -> str:
     return '\n'.join(lines)
 
 
+def classify_sentiment(market_data: dict) -> str:
+    changes = []
+    for region in market_data.get("markets", {}).values():
+        for idx in region.get("indices", {}).values():
+            data = idx.get("data") or {}
+            change = data.get("change_percent")
+            if isinstance(change, (int, float)):
+                changes.append(change)
+
+    if not changes:
+        return "Keine Daten verfügbar"
+
+    avg = sum(changes) / len(changes)
+    if avg >= 0.5:
+        return "Bullisch"
+    if avg <= -0.5:
+        return "Bärisch"
+    return "Neutral"
+
+
+def build_briefing_summary(market_data: dict, portfolio_data: dict | None) -> str:
+    sentiment = classify_sentiment(market_data)
+    headlines = market_data.get("headlines", [])[:3]
+
+    lines = ["## Marktbriefing", "", f"### Sentiment: {sentiment}"]
+
+    lines.append("")
+    lines.append("### Top 3 Schlagzeilen")
+    if headlines:
+        for idx, article in enumerate(headlines, start=1):
+            source = article.get("source", "Unknown")
+            title = article.get("title", "").strip()
+            lines.append(f"{idx}. {title} [{source}]")
+    else:
+        lines.append("Keine Daten verfügbar")
+
+    lines.append("")
+    lines.append("### Portfolio-Auswirkungen")
+    if portfolio_data:
+        for symbol, data in portfolio_data.get("stocks", {}).items():
+            quote = data.get("quote") or {}
+            change = quote.get("change_percent")
+            if isinstance(change, (int, float)):
+                lines.append(f"- **{symbol}**: {change:+.2f}%")
+            else:
+                lines.append(f"- **{symbol}**: Keine Kursdaten")
+    else:
+        lines.append("Keine Daten verfügbar")
+
+    lines.append("")
+    lines.append("### Empfehlung")
+    if sentiment == "Bullisch":
+        lines.append("Chancen selektiv nutzen, aber Risikomanagement beibehalten.")
+    elif sentiment == "Bärisch":
+        lines.append("Risiken reduzieren und Liquidität priorisieren.")
+    elif sentiment == "Neutral":
+        lines.append("Abwarten und Fokus auf Qualitätstitel.")
+    else:
+        lines.append("Keine klare Empfehlung ohne belastbare Daten.")
+
+    return "\n".join(lines)
+
+
 def generate_briefing(args):
     """Generate full market briefing."""
     config = load_config()
@@ -310,27 +373,31 @@ def generate_briefing(args):
         content = raw_content
 
     model = getattr(args, 'model', 'claude')
-    print(f"🤖 Generating AI summary with {model}...", file=sys.stderr)
 
-    # Generate summary based on selected model
-    if model == 'minimax':
-        summary = summarize_with_minimax(content, language, args.style)
-        if summary.startswith("⚠️ MiniMax briefing error"):
-            print(summary, file=sys.stderr)
-            print("⚠️ MiniMax failed; falling back to Claude...", file=sys.stderr)
+    if args.style == "briefing" and not args.llm:
+        summary = build_briefing_summary(market_data, portfolio_data)
+    else:
+        print(f"🤖 Generating AI summary with {model}...", file=sys.stderr)
+
+        # Generate summary based on selected model
+        if model == 'minimax':
+            summary = summarize_with_minimax(content, language, args.style)
+            if summary.startswith("⚠️ MiniMax briefing error"):
+                print(summary, file=sys.stderr)
+                print("⚠️ MiniMax failed; falling back to Claude...", file=sys.stderr)
+                summary = summarize_with_claude(content, language, args.style)
+                if summary.startswith("⚠️ Claude briefing error"):
+                    print(summary, file=sys.stderr)
+                    print("⚠️ Claude also failed; falling back to Gemini...", file=sys.stderr)
+                    summary = summarize_with_gemini(content, language, args.style)
+        elif model == 'gemini':
+            summary = summarize_with_gemini(content, language, args.style)
+        else:  # claude (default)
             summary = summarize_with_claude(content, language, args.style)
             if summary.startswith("⚠️ Claude briefing error"):
                 print(summary, file=sys.stderr)
-                print("⚠️ Claude also failed; falling back to Gemini...", file=sys.stderr)
+                print("⚠️ Claude failed; falling back to Gemini summarizer", file=sys.stderr)
                 summary = summarize_with_gemini(content, language, args.style)
-    elif model == 'gemini':
-        summary = summarize_with_gemini(content, language, args.style)
-    else:  # claude (default)
-        summary = summarize_with_claude(content, language, args.style)
-        if summary.startswith("⚠️ Claude briefing error"):
-            print(summary, file=sys.stderr)
-            print("⚠️ Claude failed; falling back to Gemini summarizer", file=sys.stderr)
-            summary = summarize_with_gemini(content, language, args.style)
     
     # Format output
     time_str = datetime.now().strftime("%H:%M")
@@ -380,6 +447,7 @@ def main():
                         default='claude', help='AI model for summarization')
     parser.add_argument('--json', action='store_true', help='Output as JSON')
     parser.add_argument('--research', action='store_true', help='Include deep research section (slower)')
+    parser.add_argument('--llm', action='store_true', help='Use LLM for briefing (default: deterministic)')
 
     args = parser.parse_args()
     generate_briefing(args)
