@@ -12,6 +12,15 @@ while [ -h "$SOURCE" ]; do
   [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
 done
 SCRIPT_DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+BASE_DIR="$( cd -P "${SCRIPT_DIR}/.." && pwd )"
+
+# Auto-activate local venv if present (prevents missing deps in cron/gateway runs)
+if [[ -z "${VIRTUAL_ENV:-}" && -x "${BASE_DIR}/.venv/bin/python3" ]]; then
+  export VIRTUAL_ENV="${BASE_DIR}/.venv"
+  export PATH="${VIRTUAL_ENV}/bin:${PATH}"
+fi
+
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 usage() {
     cat << EOF
@@ -50,17 +59,17 @@ EOF
 case "${1:-}" in
   briefing)
     shift
-    python3 "$SCRIPT_DIR/briefing.py" "$@"
+    "$PYTHON_BIN" "$SCRIPT_DIR/briefing.py" "$@"
     ;;
   
   market)
     shift
-    python3 "$SCRIPT_DIR/fetch_news.py" market "$@"
+    "$PYTHON_BIN" "$SCRIPT_DIR/fetch_news.py" market "$@"
     ;;
   
   portfolio)
     shift
-    python3 "$SCRIPT_DIR/fetch_news.py" portfolio "$@"
+    "$PYTHON_BIN" "$SCRIPT_DIR/fetch_news.py" portfolio "$@"
     ;;
   
   news)
@@ -72,7 +81,7 @@ case "${1:-}" in
     # Fetch news for specific ticker
     symbol="$1"
     shift
-    python3 -c "
+    "$PYTHON_BIN" -c "
 import sys
 sys.path.insert(0, '$SCRIPT_DIR')
 from fetch_news import fetch_ticker_news
@@ -87,39 +96,39 @@ for a in articles:
     ;;
   
   portfolio-list)
-    python3 "$SCRIPT_DIR/portfolio.py" list
+    "$PYTHON_BIN" "$SCRIPT_DIR/portfolio.py" list
     ;;
   
   portfolio-add)
     shift
-    python3 "$SCRIPT_DIR/portfolio.py" add "$@"
+    "$PYTHON_BIN" "$SCRIPT_DIR/portfolio.py" add "$@"
     ;;
   
   portfolio-remove)
     shift
-    python3 "$SCRIPT_DIR/portfolio.py" remove "$@"
+    "$PYTHON_BIN" "$SCRIPT_DIR/portfolio.py" remove "$@"
     ;;
   
   portfolio-import)
     shift
-    python3 "$SCRIPT_DIR/portfolio.py" import "$@"
+    "$PYTHON_BIN" "$SCRIPT_DIR/portfolio.py" import "$@"
     ;;
   
   portfolio-create)
-    python3 "$SCRIPT_DIR/portfolio.py" create
+    "$PYTHON_BIN" "$SCRIPT_DIR/portfolio.py" create
     ;;
   
   setup)
     shift
-    python3 "$SCRIPT_DIR/setup.py" "$@"
+    "$PYTHON_BIN" "$SCRIPT_DIR/setup.py" "$@"
     ;;
   
   setup-wizard)
-    python3 "$SCRIPT_DIR/setup.py" wizard
+    "$PYTHON_BIN" "$SCRIPT_DIR/setup.py" wizard
     ;;
   
   config)
-    python3 "$SCRIPT_DIR/setup.py" show
+    "$PYTHON_BIN" "$SCRIPT_DIR/setup.py" show
     ;;
   
   --help|-h|help|"")
