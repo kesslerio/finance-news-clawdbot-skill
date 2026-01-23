@@ -397,6 +397,8 @@ def get_portfolio_news(limit: int = 5, max_stocks: int = 5) -> dict:
     except subprocess.TimeoutExpired:
         print("❌ Portfolio fetch timeout", file=sys.stderr)
         raise PortfolioError("Portfolio fetch timeout")
+    except PortfolioError:
+        raise
     except Exception as e:
         print(f"❌ Portfolio error: {e}", file=sys.stderr)
         raise PortfolioError(str(e))
