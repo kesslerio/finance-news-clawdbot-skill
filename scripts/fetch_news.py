@@ -218,17 +218,26 @@ def fetch_market_data(symbols: list[str], timeout: int = 30, deadline: float | N
                     data = data["results"][0] if data["results"] else {}
                 elif isinstance(data, list):
                     data = data[0] if data else {}
-                
-                # Calculate change_percent if null (openbb-quote doesn't always provide it)
-                if isinstance(data, dict) and data.get('change_percent') is None and data.get('price') and data.get('prev_close'):
-                    price = data['price']
-                    prev_close = data['prev_close']
-                    
-                    # Guard against division by zero (rare but possible for new listings or data errors)
+
+                # Fix missing prices in indices (fallback to open/prev_close)
+                if isinstance(data, dict) and data.get("price") is None:
+                    if data.get("open") is not None:
+                        data["price"] = data["open"]
+                    elif data.get("prev_close") is not None:
+                        data["price"] = data["prev_close"]
+
+                # Calculate change_percent
+                if (
+                    isinstance(data, dict)
+                    and data.get("change_percent") is None
+                    and data.get("price")
+                    and data.get("prev_close")
+                ):
+                    price = data["price"]
+                    prev_close = data["prev_close"]
                     if prev_close != 0:
-                        data['change_percent'] = ((price - prev_close) / prev_close) * 100
-                    # If prev_close is 0, leave change_percent as None (no valid calculation)
-                
+                        data["change_percent"] = ((price - prev_close) / prev_close) * 100
+
                 results[symbol] = data
         except subprocess.TimeoutExpired:
             print(f"⚠️ Timeout fetching {symbol}", file=sys.stderr)
@@ -475,7 +484,7 @@ def get_portfolio_news(
 def fetch_portfolio_news(args):
     """Fetch news for portfolio stocks."""
     try:
-    deadline = compute_deadline(args.deadline)
+        deadline = compute_deadline(args.deadline)
         news = get_portfolio_news(
             args.limit,
             args.max_stocks,
@@ -485,7 +494,7 @@ def fetch_portfolio_news(args):
         if not args.json:
             print(f"\n❌ Error: {exc}", file=sys.stderr)
         sys.exit(1)
-    
+
     if args.json:
         print(json.dumps(news, indent=2))
     else:
@@ -495,28 +504,26 @@ def fetch_portfolio_news(args):
             price = quote.get('price')
             prev_close = quote.get('prev_close', 0)
             open_price = quote.get('open', 0)
-            
+
             # Calculate daily change
             # If markets are closed (price is null), calculate from last session (prev_close vs day-before close)
             # Since we don't have day-before close, use open -> prev_close as proxy for last session move
             change_pct = 0
             display_price = price or prev_close
-            
+
             if price and prev_close and prev_close != 0:
                 # Markets open: current price vs prev close
                 change_pct = ((price - prev_close) / prev_close) * 100
             elif not price and open_price and prev_close and prev_close != 0:
                 # Markets closed: last session change (prev_close vs open)
                 change_pct = ((prev_close - open_price) / open_price) * 100
-            
+
             emoji = '📈' if change_pct >= 0 else '📉'
             price_str = f"${display_price:.2f}" if isinstance(display_price, (int, float)) else str(display_price)
-            
+
             print(f"\n**{symbol}** {emoji} {price_str} ({change_pct:+.2f}%)")
             for article in data['articles'][:3]:
                 print(f"  • {article['title'][:80]}...")
-
-
 def get_portfolio_symbols() -> list[str]:
     """Get list of portfolio symbols."""
     try:
@@ -646,14 +653,13 @@ def fetch_portfolio_only(args):
     """Fetch portfolio-only news (top 5 gainers + top 5 losers with news)."""
     result = get_portfolio_only_news(limit_per_ticker=args.limit)
     
-    if 'error' in result:
-        print(f"\n❌ Error: {result['error']}", file=sys.stderr)
+    if "error" in result:
+        print(f"\n❌ Error: {result.get('error', 'Unknown')}", file=sys.stderr)
         sys.exit(1)
     
     if args.json:
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return
-    
     # Text output
     def format_ticker(ticker: dict):
         symbol = ticker['symbol']
