@@ -837,26 +837,40 @@ def generate_briefing(args):
 
     raw_content = '\n\n'.join(content_parts)
 
+    debug_written = False
+    debug_payload = {}
     if args.debug:
-        debug_payload = {
+        debug_payload.update({
             "selected_headlines": top_headlines,
             "headline_shortlist": headline_shortlist,
             "headline_model_used": headline_model_used,
             "translation_model_used": translation_model_used,
             "headline_model_attempts": fallback_list
-        }
-        write_debug_log(args, {**market_data, **debug_payload}, portfolio_data)
+        })
+
+    def write_debug_once(extra: dict | None = None) -> None:
+        nonlocal debug_written
+        if not args.debug or debug_written:
+            return
+        payload = dict(debug_payload)
+        if extra:
+            payload.update(extra)
+        write_debug_log(args, {**market_data, **payload}, portfolio_data)
+        debug_written = True
 
     if not raw_content.strip():
+        write_debug_once()
         print("⚠️ No data available for briefing", file=sys.stderr)
         return
 
     if not top_headlines:
+        write_debug_once()
         print("⚠️ No headlines available; skipping summary generation", file=sys.stderr)
         return
 
     remaining = time_left(deadline)
     if remaining is not None and remaining <= 0 and not top_headlines:
+        write_debug_once()
         print("⚠️ Deadline exceeded; skipping summary generation", file=sys.stderr)
         return
 
@@ -897,8 +911,18 @@ def generate_briefing(args):
     if args.llm and remaining is not None and remaining <= 0:
         print("⚠️ Deadline exceeded; using deterministic summary", file=sys.stderr)
         summary = build_briefing_summary(market_data, portfolio_data, movers, top_headlines, labels, language)
+        if args.debug:
+            debug_payload.update({
+                "summary_model_used": "deterministic",
+                "summary_model_attempts": summary_list,
+            })
     elif args.style == "briefing" and not args.llm:
         summary = build_briefing_summary(market_data, portfolio_data, movers, top_headlines, labels, language)
+        if args.debug:
+            debug_payload.update({
+                "summary_model_used": "deterministic",
+                "summary_model_attempts": summary_list,
+            })
     else:
         print(f"🤖 Generating AI summary with fallback order: {', '.join(summary_list)}", file=sys.stderr)
         summary = ""
@@ -917,11 +941,10 @@ def generate_briefing(args):
             print(summary, file=sys.stderr)
 
         if args.debug and summary_used:
-            debug_payload = {
+            debug_payload.update({
                 "summary_model_used": summary_used,
                 "summary_model_attempts": summary_list,
-            }
-            write_debug_log(args, {**market_data, **debug_payload}, portfolio_data)
+            })
     
     # Format output
     now = datetime.now()
@@ -960,6 +983,8 @@ def generate_briefing(args):
     if sources_section:
         output = f"{output}\n{sources_section}\n"
     
+    write_debug_once()
+
     if args.json:
         print(json.dumps({
             'title': f"{prefix} {title}",

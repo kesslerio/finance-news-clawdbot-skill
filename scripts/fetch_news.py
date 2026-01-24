@@ -392,7 +392,6 @@ def get_market_news(
         if isinstance(lang_sources, list) and lang_sources:
             headline_sources = lang_sources
     headline_exclude = set(sources.get("headline_exclude", []))
-    headline_exclude.add("yahoo")
     
     result = {
         'fetched_at': datetime.now().isoformat(),

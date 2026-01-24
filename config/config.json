@@ -68,10 +68,10 @@
       "top": "https://finance.yahoo.com/rss/topstories"
     }
   },
-  "headline_sources": ["reuters", "wsj", "ft", "bloomberg", "marketwatch", "yahoo"],
+  "headline_sources": ["reuters", "wsj", "ft", "bloomberg", "marketwatch", "cnbc", "yahoo"],
   "headline_sources_by_lang": {
-    "de": ["tagesschau", "handelsblatt", "zeit", "finanzen_net", "reuters", "wsj", "ft", "bloomberg", "marketwatch", "yahoo"],
-    "en": ["reuters", "wsj", "ft", "bloomberg", "marketwatch", "yahoo"]
+    "de": ["tagesschau", "handelsblatt", "zeit", "finanzen_net", "reuters", "wsj", "ft", "bloomberg", "marketwatch", "cnbc", "yahoo"],
+    "en": ["reuters", "wsj", "ft", "bloomberg", "marketwatch", "cnbc", "yahoo"]
   },
   "headline_exclude": [],
   "source_weights": {
@@ -80,6 +80,7 @@
     "ft": 4,
     "bloomberg": 3,
     "marketwatch": 3,
+    "cnbc": 2,
     "tagesschau": 4,
     "handelsblatt": 4,
     "zeit": 4,
