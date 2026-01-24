@@ -71,7 +71,8 @@ The setup wizard (`finance-news setup`) lets you configure:
 - **Language:** German or English output
 - **Schedule:** Cron times for morning/evening briefings
 
-Configuration is stored in `config/sources.json`.
+Configuration is stored in `config/config.json`. If it is missing, the CLI will fall back to
+`config/sources.json` (legacy). Prefer updating `config/config.json`.
 
 ## Portfolio
 

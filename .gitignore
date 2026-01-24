@@ -22,3 +22,5 @@ Thumbs.db
 config/cookies.json
 *.cookie
 config/portfolio.csv
+config/sources.json
+config/translations.json

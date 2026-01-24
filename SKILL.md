@@ -139,7 +139,7 @@ MSFT,Microsoft Corporation,Tech,
 
 ### Sources Configuration
 
-Location: `~/clawd/skills/finance-news/config/sources.json`
+Location: `~/clawd/skills/finance-news/config/config.json` (legacy fallback: `config/sources.json`)
 
 - RSS feeds for WSJ, Barron's, CNBC, Yahoo
 - Market indices by region
@@ -217,7 +217,7 @@ skills/finance-news/
 ├── SKILL.md              # This documentation
 ├── config/
 │   ├── portfolio.csv     # Your watchlist
-│   └── sources.json      # RSS/API configuration
+│   └── config.json       # RSS/API configuration
 ├── scripts/
 │   ├── finance-news      # Main CLI
 │   ├── briefing.py       # Briefing generator
