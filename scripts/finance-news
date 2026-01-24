@@ -15,9 +15,14 @@ SCRIPT_DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
 BASE_DIR="$( cd -P "${SCRIPT_DIR}/.." && pwd )"
 
 # Auto-activate local venv if present (prevents missing deps in cron/gateway runs)
-if [[ -z "${VIRTUAL_ENV:-}" && -x "${BASE_DIR}/.venv/bin/python3" ]]; then
-  export VIRTUAL_ENV="${BASE_DIR}/.venv"
+VENV_DIR="${BASE_DIR}/venv"
+if [[ -z "${VIRTUAL_ENV:-}" && -x "${VENV_DIR}/bin/python3" ]]; then
+  export VIRTUAL_ENV="${VENV_DIR}"
   export PATH="${VIRTUAL_ENV}/bin:${PATH}"
+else
+  if [[ ! -x "${VENV_DIR}/bin/python3" ]]; then
+    echo "⚠️ Local venv missing at ${VENV_DIR}; install deps to avoid runtime errors." >&2
+  fi
 fi
 
 PYTHON_BIN="${PYTHON_BIN:-python3}"

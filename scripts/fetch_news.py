@@ -15,8 +15,7 @@ from pathlib import Path
 import ssl
 import urllib.request
 import urllib.error
-
-import feedparser
+from email.utils import parsedate_to_datetime
 
 SCRIPT_DIR = Path(__file__).parent
 CONFIG_DIR = SCRIPT_DIR.parent / "config"
@@ -31,6 +30,34 @@ CA_FILE = (
     or ("/etc/ssl/certs/ca-certificates.crt" if os.path.exists("/etc/ssl/certs/ca-certificates.crt") else None)
 )
 SSL_CONTEXT = ssl.create_default_context(cafile=CA_FILE) if CA_FILE else ssl.create_default_context()
+
+DEFAULT_HEADLINE_SOURCES = ["barrons", "ft", "wsj", "cnbc"]
+DEFAULT_SOURCE_WEIGHTS = {
+    "barrons": 4,
+    "ft": 4,
+    "wsj": 3,
+    "cnbc": 2
+}
+
+
+def ensure_venv() -> None:
+    """Re-exec inside local venv if available and not already active."""
+    if os.environ.get("FINANCE_NEWS_VENV_BOOTSTRAPPED") == "1":
+        return
+    if sys.prefix != sys.base_prefix:
+        return
+    venv_python = Path(__file__).resolve().parent.parent / "venv" / "bin" / "python3"
+    if not venv_python.exists():
+        print("⚠️ finance-news venv missing; run scripts from the repo venv to avoid dependency errors.", file=sys.stderr)
+        return
+    env = os.environ.copy()
+    env["FINANCE_NEWS_VENV_BOOTSTRAPPED"] = "1"
+    os.execvpe(str(venv_python), [str(venv_python)] + sys.argv, env)
+
+
+ensure_venv()
+
+import feedparser
 
 
 class PortfolioError(Exception):
@@ -107,8 +134,16 @@ except RuntimeError as e:
 
 def load_sources():
     """Load source configuration."""
-    with open(CONFIG_DIR / "sources.json", 'r') as f:
-        return json.load(f)
+    config_path = CONFIG_DIR / "config.json"
+    if config_path.exists():
+        with open(config_path, 'r') as f:
+            return json.load(f)
+    legacy_path = CONFIG_DIR / "sources.json"
+    if legacy_path.exists():
+        print("⚠️ config/config.json missing; falling back to config/sources.json", file=sys.stderr)
+        with open(legacy_path, 'r') as f:
+            return json.load(f)
+    raise FileNotFoundError("Missing config/config.json")
 
 
 def _get_best_feed_url(feeds: dict) -> str | None:
@@ -170,6 +205,12 @@ def fetch_rss(url: str, limit: int = 10, timeout: int = 15) -> list[dict]:
             
             # Date handling: different formats across feeds
             published = entry.get('published', '') or entry.get('updated', '')
+            published_at = None
+            if published:
+                try:
+                    published_at = parsedate_to_datetime(published).timestamp()
+                except Exception:
+                    published_at = None
             
             # Description handling: summary vs description
             description = entry.get('summary', '') or entry.get('description', '')
@@ -178,6 +219,7 @@ def fetch_rss(url: str, limit: int = 10, timeout: int = 15) -> list[dict]:
                 'title': title,
                 'link': link,
                 'date': published.strip() if published else '',
+                'published_at': published_at,
                 'description': (description or '')[:200].strip()
             })
         
@@ -335,12 +377,22 @@ def get_market_news(
     limit: int = 5,
     regions: list[str] | None = None,
     max_indices_per_region: int | None = None,
+    language: str | None = None,
     deadline: float | None = None,
     rss_timeout: int = 15,
     subprocess_timeout: int = 30,
 ) -> dict:
     """Get market overview (indices + top headlines) as data."""
     sources = load_sources()
+    source_weights = sources.get("source_weights", DEFAULT_SOURCE_WEIGHTS)
+    headline_sources = sources.get("headline_sources", DEFAULT_HEADLINE_SOURCES)
+    sources_by_lang = sources.get("headline_sources_by_lang", {})
+    if language and isinstance(sources_by_lang, dict):
+        lang_sources = sources_by_lang.get(language)
+        if isinstance(lang_sources, list) and lang_sources:
+            headline_sources = lang_sources
+    headline_exclude = set(sources.get("headline_exclude", []))
+    headline_exclude.add("yahoo")
     
     result = {
         'fetched_at': datetime.now().isoformat(),
@@ -348,6 +400,36 @@ def get_market_news(
         'headlines': []
     }
     
+    # Fetch top headlines from preferred sources
+    for source in headline_sources:
+        if time_left(deadline) is not None and time_left(deadline) <= 0:
+            break
+        if source in headline_exclude:
+            continue
+        if source in sources['rss_feeds']:
+            feeds = sources['rss_feeds'][source]
+            if not feeds.get("enabled", True):
+                continue
+            feed_url = _get_best_feed_url(feeds)
+            if feed_url:
+                try:
+                    effective_timeout = clamp_timeout(rss_timeout, deadline)
+                except TimeoutError:
+                    break
+                articles = fetch_rss(feed_url, limit, timeout=effective_timeout)
+                for article in articles:
+                    article['source_id'] = source
+                    article['source'] = feeds.get('name', source)
+                    article['weight'] = source_weights.get(source, 1)
+                result['headlines'].extend(articles)
+
+    if time_left(deadline) is not None and time_left(deadline) <= 0:
+        return result
+
+    remaining = time_left(deadline)
+    if remaining is not None and remaining < 8:
+        return result
+
     # Fetch market indices
     for region, config in sources['markets'].items():
         if time_left(deadline) is not None and time_left(deadline) <= 0:
@@ -378,23 +460,6 @@ def get_market_news(
                     'name': config['index_names'].get(symbol, symbol),
                     'data': data[symbol]
                 }
-    
-    # Fetch top headlines from CNBC and Yahoo
-    for source in ['cnbc', 'yahoo']:
-        if time_left(deadline) is not None and time_left(deadline) <= 0:
-            break
-        if source in sources['rss_feeds']:
-            feeds = sources['rss_feeds'][source]
-            feed_url = _get_best_feed_url(feeds)
-            if feed_url:
-                try:
-                    effective_timeout = clamp_timeout(rss_timeout, deadline)
-                except TimeoutError:
-                    break
-                articles = fetch_rss(feed_url, limit, timeout=effective_timeout)
-                for article in articles:
-                    article['source'] = feeds.get('name', source)
-                result['headlines'].extend(articles)
     
     return result
 
@@ -633,6 +698,61 @@ def get_portfolio_only_news(limit_per_ticker: int = 5) -> dict:
         'fetched_at': datetime.now().isoformat(),
         'gainers': gainers,
         'losers': losers
+    }
+
+def get_portfolio_movers(
+    max_items: int = 8,
+    min_abs_change: float = 1.0,
+    deadline: float | None = None,
+    subprocess_timeout: int = 30,
+) -> dict:
+    """Return top portfolio movers without fetching news."""
+    symbols = get_portfolio_symbols()
+    if not symbols:
+        return {'error': 'No portfolio symbols found', 'movers': []}
+
+    try:
+        effective_timeout = clamp_timeout(subprocess_timeout, deadline)
+    except TimeoutError:
+        return {'error': 'Deadline exceeded while fetching portfolio quotes', 'movers': []}
+
+    quotes = fetch_market_data(symbols, timeout=effective_timeout, deadline=deadline)
+
+    gainers = []
+    losers = []
+    for symbol in symbols:
+        quote = quotes.get(symbol, {})
+        price = quote.get('price')
+        prev_close = quote.get('prev_close', 0)
+        open_price = quote.get('open', 0)
+
+        if price and prev_close and prev_close != 0:
+            change_pct = ((price - prev_close) / prev_close) * 100
+        elif price and open_price and open_price != 0:
+            change_pct = ((price - open_price) / open_price) * 100
+        else:
+            continue
+
+        item = {'symbol': symbol, 'change_pct': change_pct, 'price': price}
+        if change_pct >= min_abs_change:
+            gainers.append(item)
+        elif change_pct <= -min_abs_change:
+            losers.append(item)
+
+    gainers.sort(key=lambda x: x['change_pct'], reverse=True)
+    losers.sort(key=lambda x: x['change_pct'])
+
+    max_each = max_items // 2
+    selected = gainers[:max_each] + losers[:max_each]
+    if len(selected) < max_items:
+        remaining = max_items - len(selected)
+        extra = gainers[max_each:] + losers[max_each:]
+        extra.sort(key=lambda x: abs(x['change_pct']), reverse=True)
+        selected.extend(extra[:remaining])
+
+    return {
+        'fetched_at': datetime.now().isoformat(),
+        'movers': selected[:max_items],
     }
 
 

@@ -7,6 +7,7 @@ Outputs research_report.md for later analysis.
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -20,9 +21,27 @@ CONFIG_DIR = SCRIPT_DIR.parent / "config"
 OUTPUT_DIR = SCRIPT_DIR.parent / "research"
 
 
+def ensure_venv() -> None:
+    """Re-exec inside local venv if available and not already active."""
+    if os.environ.get("FINANCE_NEWS_VENV_BOOTSTRAPPED") == "1":
+        return
+    if sys.prefix != sys.base_prefix:
+        return
+    venv_python = Path(__file__).resolve().parent.parent / "venv" / "bin" / "python3"
+    if not venv_python.exists():
+        print("⚠️ finance-news venv missing; run scripts from the repo venv to avoid dependency errors.", file=sys.stderr)
+        return
+    env = os.environ.copy()
+    env["FINANCE_NEWS_VENV_BOOTSTRAPPED"] = "1"
+    os.execvpe(str(venv_python), [str(venv_python)] + sys.argv, env)
+
+
+ensure_venv()
+
+
 def format_market_data(market_data: dict) -> str:
     """Format market data for research prompt."""
-    lines = ["## Marktdaten\n"]
+    lines = ["## Market Data\n"]
     
     for region, data in market_data.get('markets', {}).items():
         lines.append(f"### {data['name']}")
@@ -39,7 +58,7 @@ def format_market_data(market_data: dict) -> str:
 
 def format_headlines(headlines: list) -> str:
     """Format headlines for research prompt."""
-    lines = ["## Aktuelle Schlagzeilen\n"]
+    lines = ["## Current Headlines\n"]
     
     for article in headlines[:20]:
         source = article.get('source', 'Unknown')
@@ -54,7 +73,7 @@ def format_headlines(headlines: list) -> str:
 
 def format_portfolio_news(portfolio_data: dict) -> str:
     """Format portfolio news for research prompt."""
-    lines = ["## Portfolio Analyse\n"]
+    lines = ["## Portfolio Analysis\n"]
     
     for symbol, data in portfolio_data.get('stocks', {}).items():
         quote = data.get('quote', {})
@@ -91,10 +110,10 @@ def research_with_gemini(content: str, focus_areas: list = None) -> str:
     focus_prompt = ""
     if focus_areas:
         focus_prompt = f"""
-Fokusbereiche für die Recherche:
+Focus areas for the research:
 {', '.join(f'- {area}' for area in focus_areas)}
 
-Gehe bei jedem Punkt tief ins Detail.
+Go deep on each area.
 """
     
     prompt = f"""You are an experienced investment research analyst.
@@ -180,7 +199,7 @@ def generate_research_report(args):
     """Generate full research report."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     
-    config_path = CONFIG_DIR / "sources.json"
+    config_path = CONFIG_DIR / "config.json"
     if not config_path.exists():
         print("⚠️ No config found. Run 'finance-news wizard' first.", file=sys.stderr)
         sys.exit(1)
@@ -227,7 +246,7 @@ def generate_research_report(args):
     timestamp = datetime.now().isoformat()
     date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     
-    full_report = f"""# Marktforschungsbericht
+    full_report = f"""# Market Research Report
 **Generiert:** {date_str}
 **Quelle:** Finance News Skill
 
@@ -237,7 +256,7 @@ def generate_research_report(args):
 
 ---
 
-*Dieser Bericht wurde automatisch generiert. Keine Finanzberatung.*
+*This report was generated automatically. Not financial advice.*
 """
     
     # Save to file

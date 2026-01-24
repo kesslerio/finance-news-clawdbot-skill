@@ -7,19 +7,65 @@ Uses Gemini CLI for summarization and translation.
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+from difflib import SequenceMatcher
 
-from fetch_news import PortfolioError, get_market_news, get_portfolio_news
+
+def ensure_venv() -> None:
+    """Re-exec inside local venv if available and not already active."""
+    if os.environ.get("FINANCE_NEWS_VENV_BOOTSTRAPPED") == "1":
+        return
+    if sys.prefix != sys.base_prefix:
+        return
+    venv_python = Path(__file__).resolve().parent.parent / "venv" / "bin" / "python3"
+    if not venv_python.exists():
+        print("⚠️ finance-news venv missing; run scripts from the repo venv to avoid dependency errors.", file=sys.stderr)
+        return
+    env = os.environ.copy()
+    env["FINANCE_NEWS_VENV_BOOTSTRAPPED"] = "1"
+    os.execvpe(str(venv_python), [str(venv_python)] + sys.argv, env)
+
+
+ensure_venv()
+
+from fetch_news import PortfolioError, get_market_news, get_portfolio_movers, get_portfolio_news
 from research import generate_research_content
 from utils import clamp_timeout, compute_deadline, time_left
 
 SCRIPT_DIR = Path(__file__).parent
 CONFIG_DIR = SCRIPT_DIR.parent / "config"
 DEFAULT_PORTFOLIO_SAMPLE_SIZE = 3
+PORTFOLIO_MOVER_MAX = 8
+PORTFOLIO_MOVER_MIN_ABS_CHANGE = 1.0
 MAX_HEADLINES_IN_PROMPT = 10
+TOP_HEADLINES_COUNT = 5
+DEFAULT_LLM_FALLBACK = ["gemini", "minimax", "claude"]
+HEADLINE_SHORTLIST_SIZE = 20
+HEADLINE_MERGE_THRESHOLD = 0.82
+HEADLINE_MAX_AGE_HOURS = 72
+
+STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "is",
+    "it", "of", "on", "or", "that", "the", "to", "with", "will", "after", "before",
+    "about", "over", "under", "into", "amid", "as", "its", "new", "newly"
+}
+
+SUPPORTED_MODELS = {"gemini", "minimax", "claude"}
+
+
+def parse_model_list(raw: str | None, default: list[str]) -> list[str]:
+    if not raw:
+        return default
+    items = [item.strip() for item in raw.split(",") if item.strip()]
+    result: list[str] = []
+    for item in items:
+        if item in SUPPORTED_MODELS and item not in result:
+            result.append(item)
+    return result or default
 
 LANG_PROMPTS = {
     "de": "Output must be in German only.",
@@ -32,14 +78,14 @@ STYLE_PROMPTS = {
 IMPORTANT:
 - Use only the provided market data and headlines.
 - No speculation, no invented numbers, no external facts.
-- If information is missing, say clearly: "Keine Daten verfügbar".
+- If information is missing, say clearly: "No data available".
 - Follow the language constraint exactly.
 
-Structure:
-1) Market sentiment (bullish/bearish/neutral) with a short rationale from the data
-2) Top 3 headlines as a numbered list with source tags in brackets
-3) Portfolio impact (only if portfolio data exists)
-4) Short action recommendation
+Structure (use these exact headings):
+1) **Sentiment:** (bullish/bearish/neutral) with a short rationale from the data
+2) **Top 3 Headlines:** numbered list (we will insert the exact list; do not invent)
+3) **Portfolio Impact:** only if portfolio data exists
+4) **Recommendation:** short action recommendation
 
 Max 200 words. Use emojis sparingly.""",
 
@@ -58,9 +104,53 @@ Each bullet must be at most 15 words."""
 
 
 def load_config():
-    """Load source configuration."""
-    with open(CONFIG_DIR / "sources.json", 'r') as f:
-        return json.load(f)
+    """Load configuration."""
+    config_path = CONFIG_DIR / "config.json"
+    if config_path.exists():
+        with open(config_path, 'r') as f:
+            return json.load(f)
+    legacy_path = CONFIG_DIR / "sources.json"
+    if legacy_path.exists():
+        print("⚠️ config/config.json missing; falling back to config/sources.json", file=sys.stderr)
+        with open(legacy_path, 'r') as f:
+            return json.load(f)
+    raise FileNotFoundError("Missing config/config.json")
+
+
+def load_translations(config: dict) -> dict:
+    """Load translation strings for output labels."""
+    translations = config.get("translations")
+    if isinstance(translations, dict):
+        return translations
+    path = CONFIG_DIR / "translations.json"
+    if path.exists():
+        print("⚠️ translations missing from config.json; falling back to config/translations.json", file=sys.stderr)
+        with open(path, 'r') as f:
+            return json.load(f)
+    return {}
+
+def write_debug_log(args, market_data: dict, portfolio_data: dict | None) -> None:
+    """Write a debug log with the raw sources used in the briefing."""
+    cache_dir = SCRIPT_DIR.parent / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    now = datetime.now()
+    stamp = now.strftime("%Y-%m-%d-%H%M%S")
+    payload = {
+        "timestamp": now.isoformat(),
+        "time": args.time,
+        "style": args.style,
+        "language": args.lang,
+        "model": getattr(args, "model", None),
+        "llm": bool(args.llm),
+        "fast": bool(args.fast),
+        "deadline": args.deadline,
+        "market": market_data,
+        "portfolio": portfolio_data,
+        "headlines": (market_data or {}).get("headlines", []),
+    }
+    (cache_dir / f"briefing-debug-{stamp}.json").write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False)
+    )
 
 
 def extract_agent_reply(raw: str) -> str:
@@ -92,6 +182,230 @@ def extract_agent_reply(raw: str) -> str:
                         return text.strip()
 
     return raw.strip()
+
+
+def run_agent_prompt(prompt: str, model: str = "claude", deadline: float | None = None, session_id: str = "finance-news-headlines") -> str:
+    """Run a short prompt against clawdbot agent and return raw reply text."""
+    try:
+        cli_timeout = clamp_timeout(30, deadline)
+        proc_timeout = clamp_timeout(40, deadline)
+        cmd = [
+            'clawdbot', 'agent',
+            '--session-id', session_id,
+            '--message', prompt,
+            '--json',
+            '--timeout', str(cli_timeout)
+        ]
+        if model:
+            cmd.extend(['--model', model])
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=proc_timeout
+        )
+    except subprocess.TimeoutExpired:
+        return "⚠️ LLM error: timeout"
+    except TimeoutError:
+        return "⚠️ LLM error: deadline exceeded"
+    except FileNotFoundError:
+        return "⚠️ LLM error: clawdbot CLI not found"
+    except OSError as exc:
+        return f"⚠️ LLM error: {exc}"
+
+    if result.returncode == 0:
+        return extract_agent_reply(result.stdout)
+
+    stderr = result.stderr.strip() or "unknown error"
+    return f"⚠️ LLM error: {stderr}"
+
+
+def normalize_title(title: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9\s]", " ", title.lower())
+    tokens = [t for t in cleaned.split() if t and t not in STOPWORDS]
+    return " ".join(tokens)
+
+
+def title_similarity(a: str, b: str) -> float:
+    if not a or not b:
+        return 0.0
+    return SequenceMatcher(None, a, b).ratio()
+
+
+def group_headlines(headlines: list[dict]) -> list[dict]:
+    groups: list[dict] = []
+    now_ts = datetime.now().timestamp()
+    for article in headlines:
+        title = (article.get("title") or "").strip()
+        if not title:
+            continue
+        norm = normalize_title(title)
+        if not norm:
+            continue
+        source = article.get("source", "Unknown")
+        link = article.get("link", "").strip()
+        weight = article.get("weight", 1)
+        published_at = article.get("published_at") or 0
+        if isinstance(published_at, (int, float)) and published_at:
+            age_hours = (now_ts - published_at) / 3600.0
+            if age_hours > HEADLINE_MAX_AGE_HOURS:
+                continue
+
+        matched = None
+        for group in groups:
+            if title_similarity(norm, group["norm"]) >= HEADLINE_MERGE_THRESHOLD:
+                matched = group
+                break
+
+        if matched:
+            matched["items"].append(article)
+            matched["sources"].add(source)
+            if link:
+                matched["links"].add(link)
+            matched["weight"] = max(matched["weight"], weight)
+            matched["published_at"] = max(matched["published_at"], published_at)
+            if len(title) > len(matched["title"]):
+                matched["title"] = title
+        else:
+            groups.append({
+                "title": title,
+                "norm": norm,
+                "items": [article],
+                "sources": {source},
+                "links": {link} if link else set(),
+                "weight": weight,
+                "published_at": published_at,
+            })
+
+    return groups
+
+
+def score_headline_group(group: dict) -> float:
+    weight_score = float(group.get("weight", 1)) * 10.0
+    recency_score = 0.0
+    published_at = group.get("published_at")
+    if isinstance(published_at, (int, float)) and published_at:
+        age_hours = max(0.0, (datetime.now().timestamp() - published_at) / 3600.0)
+        recency_score = max(0.0, 48.0 - age_hours)
+    source_bonus = min(len(group.get("sources", [])), 3) * 0.5
+    return weight_score + recency_score + source_bonus
+
+
+def select_top_headlines(
+    headlines: list[dict],
+    language: str,
+    deadline: float | None,
+    model: str = "claude",
+    translation_models: list[str] | None = None,
+    shortlist_size: int = HEADLINE_SHORTLIST_SIZE,
+) -> tuple[list[dict], list[dict], str | None, str | None]:
+    groups = group_headlines(headlines)
+    for group in groups:
+        group["score"] = score_headline_group(group)
+
+    groups.sort(key=lambda g: g["score"], reverse=True)
+    shortlist = groups[:shortlist_size]
+
+    if not shortlist:
+        return [], [], None, None
+
+    selected_ids: list[int] = []
+    remaining = time_left(deadline)
+    if remaining is None or remaining >= 10:
+        selected_ids = select_top_headline_ids(shortlist, deadline, model=model)
+    if not selected_ids:
+        selected_ids = list(range(1, min(TOP_HEADLINES_COUNT, len(shortlist)) + 1))
+
+    selected = []
+    for idx in selected_ids:
+        if 1 <= idx <= len(shortlist):
+            selected.append(shortlist[idx - 1])
+
+    for item in shortlist:
+        sources = sorted(item.get("sources", []))
+        links = sorted(item.get("links", []))
+        item["sources"] = sources
+        item["links"] = links
+        item["source"] = ", ".join(sources) if sources else "Unknown"
+        item["link"] = links[0] if links else ""
+
+    translation_used = None
+    if language == "de":
+        titles = [item["title"] for item in selected]
+        translated, translation_used = translate_headlines(
+            titles,
+            deadline=deadline,
+            model_order=translation_models or [model],
+        )
+        if translated:
+            for item, translated_title in zip(selected, translated):
+                item["title_de"] = translated_title
+
+    return selected, shortlist, model, translation_used
+
+
+def select_top_headline_ids(shortlist: list[dict], deadline: float | None, model: str = "claude") -> list[int]:
+    prompt_lines = [
+        "Select the 5 headlines with the widest market impact.",
+        "Return JSON only: {\"selected\":[1,2,3,4,5]}.",
+        "Use only the IDs provided.",
+        "",
+        "Candidates:"
+    ]
+    for idx, item in enumerate(shortlist, start=1):
+        sources = ", ".join(sorted(item.get("sources", [])))
+        prompt_lines.append(f"{idx}. {item.get('title')} (sources: {sources})")
+    prompt = "\n".join(prompt_lines)
+
+    reply = run_agent_prompt(prompt, model=model, deadline=deadline, session_id="finance-news-headlines")
+    if reply.startswith("⚠️"):
+        return []
+    try:
+        data = json.loads(reply)
+    except json.JSONDecodeError:
+        return []
+
+    selected = data.get("selected") if isinstance(data, dict) else None
+    if not isinstance(selected, list):
+        return []
+
+    clean = []
+    for item in selected:
+        if isinstance(item, int) and 1 <= item <= len(shortlist):
+            clean.append(item)
+    return clean[:TOP_HEADLINES_COUNT]
+
+
+def translate_headlines(
+    titles: list[str],
+    deadline: float | None,
+    model_order: list[str],
+) -> tuple[list[str], str | None]:
+    if not titles:
+        return [], None
+    prompt_lines = [
+        "Translate the following English headlines to German.",
+        "Return JSON only: [\"...\"] in the same order.",
+        "Preserve meaning. Do not add facts or commentary.",
+        "",
+        "Headlines:"
+    ]
+    for idx, title in enumerate(titles, start=1):
+        prompt_lines.append(f"{idx}. {title}")
+    prompt = "\n".join(prompt_lines)
+
+    for model in model_order:
+        reply = run_agent_prompt(prompt, model=model, deadline=deadline, session_id="finance-news-translate")
+        if reply.startswith("⚠️"):
+            continue
+        try:
+            data = json.loads(reply)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, list) and all(isinstance(item, str) for item in data):
+            if len(data) == len(titles):
+                return data, model
+    return titles, None
 
 
 def summarize_with_claude(
@@ -230,7 +544,7 @@ Here are the current market items:
 
 def format_market_data(market_data: dict) -> str:
     """Format market data for the prompt."""
-    lines = ["## Marktdaten\n"]
+    lines = ["## Market Data\n"]
     
     for region, data in market_data.get('markets', {}).items():
         lines.append(f"### {data['name']}")
@@ -246,19 +560,49 @@ def format_market_data(market_data: dict) -> str:
 
 def format_headlines(headlines: list) -> str:
     """Format headlines for the prompt."""
-    lines = ["## Schlagzeilen\n"]
+    lines = ["## Headlines\n"]
 
     for article in headlines[:MAX_HEADLINES_IN_PROMPT]:
-        source = article.get('source', 'Unknown')
+        source = article.get('source')
+        if not source:
+            sources = article.get('sources')
+            if isinstance(sources, (set, list, tuple)) and sources:
+                source = ", ".join(sorted(sources))
+            else:
+                source = "Unknown"
         title = article.get('title', '')
-        lines.append(f"- [{source}] {title}")
+        link = article.get('link', '')
+        if not link:
+            links = article.get('links')
+            if isinstance(links, (set, list, tuple)) and links:
+                link = sorted([str(item).strip() for item in links if str(item).strip()])[0]
+        lines.append(f"- {title} | {source} | {link}")
 
     return '\n'.join(lines)
+
+def format_sources(headlines: list, labels: dict) -> str:
+    """Format source references for the prompt/output."""
+    if not headlines:
+        return ""
+    header = labels.get("sources_header", "Sources")
+    lines = [f"## {header}\n"]
+    for idx, article in enumerate(headlines, start=1):
+        links = []
+        if isinstance(article, dict):
+            link = article.get("link", "").strip()
+            if link:
+                links.append(link)
+            extra_links = article.get("links")
+            if isinstance(extra_links, (list, set, tuple)):
+                links.extend([str(item).strip() for item in extra_links if str(item).strip()])
+        for link in sorted(set(links)):
+            lines.append(f"[{idx}] {link}")
+    return "\n".join(lines)
 
 
 def format_portfolio_news(portfolio_data: dict) -> str:
     """Format portfolio news for the prompt."""
-    lines = ["## Portfolio Nachrichten\n"]
+    lines = ["## Portfolio News\n"]
     
     for symbol, data in portfolio_data.get('stocks', {}).items():
         quote = data.get('quote', {})
@@ -290,55 +634,77 @@ def classify_sentiment(market_data: dict) -> str:
                 changes.append(((price - prev_close) / prev_close) * 100)
 
     if not changes:
-        return "Keine Daten verfügbar"
+        return "No data available"
 
     avg = sum(changes) / len(changes)
     if avg >= 0.5:
-        return "Bullisch"
+        return "Bullish"
     if avg <= -0.5:
-        return "Bärisch"
+        return "Bearish"
     return "Neutral"
 
 
-def build_briefing_summary(market_data: dict, portfolio_data: dict | None) -> str:
+def build_briefing_summary(
+    market_data: dict,
+    portfolio_data: dict | None,
+    movers: list[dict] | None,
+    top_headlines: list[dict] | None,
+    labels: dict,
+    language: str,
+) -> str:
     sentiment = classify_sentiment(market_data)
-    headlines = market_data.get("headlines", [])[:3]
+    headlines = top_headlines or []
 
-    lines = ["## Marktbriefing", "", f"### Sentiment: {sentiment}"]
+    heading_briefing = labels.get("heading_briefing", "Market Briefing")
+    heading_sentiment = labels.get("heading_sentiment", "Sentiment")
+    heading_top = labels.get("heading_top_headlines", "Top Headlines")
+    heading_portfolio = labels.get("heading_portfolio_impact", "Portfolio Impact")
+    heading_reco = labels.get("heading_recommendation", "Recommendation")
+    no_data = labels.get("no_data", "No data available")
+    no_movers = labels.get("no_movers", "No significant moves (±1%)")
+    rec_bullish = labels.get("rec_bullish", "Selective opportunities, keep risk management tight.")
+    rec_bearish = labels.get("rec_bearish", "Reduce risk and prioritize liquidity.")
+    rec_neutral = labels.get("rec_neutral", "Wait-and-see, focus on quality names.")
+    rec_unknown = labels.get("rec_unknown", "No clear recommendation without reliable data.")
+
+    sentiment_map = labels.get("sentiment_map", {})
+    sentiment_display = sentiment_map.get(sentiment, sentiment)
+
+    lines = [f"## {heading_briefing}", "", f"### {heading_sentiment}: {sentiment_display}"]
 
     lines.append("")
-    lines.append("### Top 3 Schlagzeilen")
+    lines.append(f"### {heading_top}")
     if headlines:
-        for idx, article in enumerate(headlines, start=1):
+        for idx, article in enumerate(headlines[:TOP_HEADLINES_COUNT], start=1):
             source = article.get("source", "Unknown")
-            title = article.get("title", "").strip()
-            lines.append(f"{idx}. {title} [{source}]")
+            title = article.get("title_de") if language == "de" else None
+            title = title or article.get("title", "")
+            title = title.strip()
+            lines.append(f"{idx}. {title} [{idx}] [{source}]")
     else:
-        lines.append("Keine Daten verfügbar")
+        lines.append(no_data)
 
     lines.append("")
-    lines.append("### Portfolio-Auswirkungen")
-    if portfolio_data:
-        for symbol, data in portfolio_data.get("stocks", {}).items():
-            quote = data.get("quote") or {}
-            change = quote.get("change_percent")
+    lines.append(f"### {heading_portfolio}")
+    if movers:
+        for item in movers:
+            symbol = item.get("symbol")
+            change = item.get("change_pct")
             if isinstance(change, (int, float)):
                 lines.append(f"- **{symbol}**: {change:+.2f}%")
-            else:
-                lines.append(f"- **{symbol}**: Keine Kursdaten")
     else:
-        lines.append("Keine Daten verfügbar")
+        lines.append(no_movers)
 
     lines.append("")
-    lines.append("### Empfehlung")
-    if sentiment == "Bullisch":
-        lines.append("Chancen selektiv nutzen, aber Risikomanagement beibehalten.")
-    elif sentiment == "Bärisch":
-        lines.append("Risiken reduzieren und Liquidität priorisieren.")
+    lines.append(f"### {heading_reco}")
+    if sentiment == "Bullish":
+        lines.append(rec_bullish)
+    elif sentiment == "Bearish":
+        lines.append(rec_bearish)
     elif sentiment == "Neutral":
-        lines.append("Abwarten und Fokus auf Qualitätstitel.")
+        lines.append(rec_neutral)
     else:
-        lines.append("Keine klare Empfehlung ohne belastbare Daten.")
+        lines.append(rec_unknown)
 
     return "\n".join(lines)
 
@@ -346,7 +712,9 @@ def build_briefing_summary(market_data: dict, portfolio_data: dict | None) -> st
 def generate_briefing(args):
     """Generate full market briefing."""
     config = load_config()
+    translations = load_translations(config)
     language = args.lang or config['language']['default']
+    labels = translations.get(language, translations.get("en", {}))
     fast_mode = args.fast or os.environ.get("FINANCE_NEWS_FAST") == "1"
     env_deadline = os.environ.get("FINANCE_NEWS_DEADLINE_SEC")
     try:
@@ -367,35 +735,101 @@ def generate_briefing(args):
     print("📡 Fetching market data...", file=sys.stderr)
     
     # Get market overview
+    headline_limit = 10 if fast_mode else 15
     market_data = get_market_news(
-        2 if fast_mode else 3,
+        headline_limit,
         regions=["us", "europe", "japan"],
-        max_indices_per_region=2,
+        max_indices_per_region=1 if fast_mode else 2,
+        language=language,
         deadline=deadline,
         rss_timeout=rss_timeout,
         subprocess_timeout=subprocess_timeout,
     )
+
+    model_env = os.environ.get("FINANCE_NEWS_HEADLINE_MODEL")
+    headline_model = args.model if args.llm else (model_env or "gemini")
+    fallback_env = os.environ.get("FINANCE_NEWS_HEADLINE_FALLBACKS")
+    fallback_list = parse_model_list(fallback_env, config.get("llm", {}).get("headline_model_order", DEFAULT_LLM_FALLBACK))
+    if headline_model not in fallback_list:
+        fallback_list = [headline_model] + [m for m in fallback_list if m != headline_model]
+    translation_primary = os.environ.get("FINANCE_NEWS_TRANSLATION_MODEL")
+    translation_fallback_env = os.environ.get("FINANCE_NEWS_TRANSLATION_FALLBACKS")
+    translation_list = parse_model_list(
+        translation_fallback_env,
+        config.get("llm", {}).get("translation_model_order", DEFAULT_LLM_FALLBACK),
+    )
+    if translation_primary:
+        if translation_primary not in translation_list:
+            translation_list = [translation_primary] + translation_list
+        else:
+            translation_list = [translation_primary] + [m for m in translation_list if m != translation_primary]
+
+    shortlist_by_lang = config.get("headline_shortlist_size_by_lang", {})
+    shortlist_size = HEADLINE_SHORTLIST_SIZE
+    if isinstance(shortlist_by_lang, dict):
+        lang_size = shortlist_by_lang.get(language)
+        if isinstance(lang_size, int) and lang_size > 0:
+            shortlist_size = lang_size
+    headline_deadline = deadline
+    remaining = time_left(deadline)
+    if remaining is not None and remaining < 12:
+        headline_deadline = compute_deadline(12)
+    top_headlines: list[dict] = []
+    headline_shortlist: list[dict] = []
+    headline_model_used: str | None = None
+    translation_model_used: str | None = None
+    for candidate in fallback_list:
+        selected, shortlist, used_model, used_translation = select_top_headlines(
+            market_data.get("headlines", []),
+            language=language,
+            deadline=headline_deadline,
+            model=candidate,
+            translation_models=translation_list,
+            shortlist_size=shortlist_size,
+        )
+        if selected:
+            top_headlines = selected
+            headline_shortlist = shortlist
+            headline_model_used = used_model
+            translation_model_used = used_translation
+            break
     
     # Get portfolio news (limit stocks for performance)
+    portfolio_deadline_sec = int(config.get("portfolio_deadline_sec", 360))
+    portfolio_deadline = compute_deadline(max(deadline_sec, portfolio_deadline_sec))
     try:
         max_stocks = 2 if fast_mode else DEFAULT_PORTFOLIO_SAMPLE_SIZE
         portfolio_data = get_portfolio_news(
             2,
             max_stocks,
-            deadline=deadline,
+            deadline=portfolio_deadline,
             subprocess_timeout=subprocess_timeout,
         )
     except PortfolioError as exc:
         print(f"⚠️ Skipping portfolio: {exc}", file=sys.stderr)
         portfolio_data = None
+
+    movers = []
+    try:
+        movers_result = get_portfolio_movers(
+            max_items=PORTFOLIO_MOVER_MAX,
+            min_abs_change=PORTFOLIO_MOVER_MIN_ABS_CHANGE,
+            deadline=portfolio_deadline,
+            subprocess_timeout=subprocess_timeout,
+        )
+        movers = movers_result.get("movers", [])
+    except Exception as exc:
+        print(f"⚠️ Skipping portfolio movers: {exc}", file=sys.stderr)
+        movers = []
     
     # Build raw content for summarization
     content_parts = []
 
     if market_data:
         content_parts.append(format_market_data(market_data))
-        if market_data.get('headlines'):
-            content_parts.append(format_headlines(market_data['headlines']))
+        if headline_shortlist:
+            content_parts.append(format_headlines(headline_shortlist))
+            content_parts.append(format_sources(top_headlines, labels))
 
     # Only include portfolio if fetch succeeded (no error key)
     if portfolio_data:
@@ -403,15 +837,26 @@ def generate_briefing(args):
 
     raw_content = '\n\n'.join(content_parts)
 
+    if args.debug:
+        debug_payload = {
+            "selected_headlines": top_headlines,
+            "headline_shortlist": headline_shortlist,
+            "headline_model_used": headline_model_used,
+            "translation_model_used": translation_model_used,
+            "headline_model_attempts": fallback_list
+        }
+        write_debug_log(args, {**market_data, **debug_payload}, portfolio_data)
+
     if not raw_content.strip():
         print("⚠️ No data available for briefing", file=sys.stderr)
         return
 
-    if not market_data.get('headlines'):
+    if not top_headlines:
         print("⚠️ No headlines available; skipping summary generation", file=sys.stderr)
         return
 
-    if time_left(deadline) is not None and time_left(deadline) <= 0:
+    remaining = time_left(deadline)
+    if remaining is not None and remaining <= 0 and not top_headlines:
         print("⚠️ Deadline exceeded; skipping summary generation", file=sys.stderr)
         return
 
@@ -435,35 +880,48 @@ def generate_briefing(args):
         content = raw_content
 
     model = getattr(args, 'model', 'claude')
+    summary_primary = os.environ.get("FINANCE_NEWS_SUMMARY_MODEL")
+    summary_fallback_env = os.environ.get("FINANCE_NEWS_SUMMARY_FALLBACKS")
+    summary_list = parse_model_list(
+        summary_fallback_env,
+        config.get("llm", {}).get("summary_model_order", DEFAULT_LLM_FALLBACK),
+    )
+    if summary_primary:
+        if summary_primary not in summary_list:
+            summary_list = [summary_primary] + summary_list
+        else:
+            summary_list = [summary_primary] + [m for m in summary_list if m != summary_primary]
+    if args.llm and model and model in SUPPORTED_MODELS:
+        summary_list = [model] + [m for m in summary_list if m != model]
 
-    if args.style == "briefing" and not args.llm:
-        summary = build_briefing_summary(market_data, portfolio_data)
+    if args.llm and remaining is not None and remaining <= 0:
+        print("⚠️ Deadline exceeded; using deterministic summary", file=sys.stderr)
+        summary = build_briefing_summary(market_data, portfolio_data, movers, top_headlines, labels, language)
+    elif args.style == "briefing" and not args.llm:
+        summary = build_briefing_summary(market_data, portfolio_data, movers, top_headlines, labels, language)
     else:
-        print(f"🤖 Generating AI summary with {model}...", file=sys.stderr)
-
-        # Generate summary based on selected model
-        if model == 'minimax':
-            summary = summarize_with_minimax(content, language, args.style, deadline=deadline)
-            if summary.startswith("⚠️ MiniMax briefing error"):
-                print(summary, file=sys.stderr)
-                print("⚠️ MiniMax failed; falling back to Claude...", file=sys.stderr)
-                summary = summarize_with_claude(content, language, args.style, deadline=deadline)
-                if summary.startswith("⚠️ Claude briefing error"):
-                    print(summary, file=sys.stderr)
-                    print("⚠️ Claude also failed; falling back to Gemini...", file=sys.stderr)
-                    summary = summarize_with_gemini(content, language, args.style, deadline=deadline)
-        elif model == 'gemini':
-            summary = summarize_with_gemini(content, language, args.style, deadline=deadline)
-            if summary.startswith("⚠️ Gemini"):
-                print(summary, file=sys.stderr)
-                print("⚠️ Gemini failed; falling back to Claude...", file=sys.stderr)
-                summary = summarize_with_claude(content, language, args.style, deadline=deadline)
-        else:  # claude (default)
-            summary = summarize_with_claude(content, language, args.style, deadline=deadline)
-            if summary.startswith("⚠️ Claude briefing error"):
-                print(summary, file=sys.stderr)
-                print("⚠️ Claude failed; falling back to Gemini summarizer", file=sys.stderr)
+        print(f"🤖 Generating AI summary with fallback order: {', '.join(summary_list)}", file=sys.stderr)
+        summary = ""
+        summary_used = None
+        for candidate in summary_list:
+            if candidate == "minimax":
+                summary = summarize_with_minimax(content, language, args.style, deadline=deadline)
+            elif candidate == "gemini":
                 summary = summarize_with_gemini(content, language, args.style, deadline=deadline)
+            else:
+                summary = summarize_with_claude(content, language, args.style, deadline=deadline)
+
+            if not summary.startswith("⚠️"):
+                summary_used = candidate
+                break
+            print(summary, file=sys.stderr)
+
+        if args.debug and summary_used:
+            debug_payload = {
+                "summary_model_used": summary_used,
+                "summary_model_attempts": summary_list,
+            }
+            write_debug_log(args, {**market_data, **debug_payload}, portfolio_data)
     
     # Format output
     now = datetime.now()
@@ -471,38 +929,48 @@ def generate_briefing(args):
     
     date_str = now.strftime("%A, %d. %B %Y")
     if language == "de":
-        months = {"January": "Januar", "February": "Februar", "March": "März", "April": "April",
-                  "May": "Mai", "June": "Juni", "July": "Juli", "August": "August",
-                  "September": "September", "October": "Oktober", "November": "November", "December": "Dezember"}
-        days = {"Monday": "Montag", "Tuesday": "Dienstag", "Wednesday": "Mittwoch", "Thursday": "Donnerstag",
-                "Friday": "Freitag", "Saturday": "Samstag", "Sunday": "Sonntag"}
-        for en, de in months.items(): date_str = date_str.replace(en, de)
-        for en, de in days.items(): date_str = date_str.replace(en, de)
+        months = labels.get("months", {})
+        days = labels.get("days", {})
+        for en, de in months.items():
+            date_str = date_str.replace(en, de)
+        for en, de in days.items():
+            date_str = date_str.replace(en, de)
 
     if args.time == "morning":
         emoji = "🌅"
-        title = "Morgen-Briefing"
+        title = labels.get("title_morning", "Morning Briefing")
     elif args.time == "evening":
         emoji = "🌆"
-        title = "Abend-Briefing"
+        title = labels.get("title_evening", "Evening Briefing")
     else:
         hour = now.hour
         emoji = "🌅" if hour < 12 else "🌆"
-        title = "Morgen-Briefing" if hour < 12 else "Abend-Briefing"
+        title = labels.get("title_morning", "Morning Briefing") if hour < 12 else labels.get("title_evening", "Evening Briefing")
+
+    prefix = labels.get("title_prefix", "Market")
+    time_suffix = labels.get("time_suffix", "")
     
-    output = f"""{emoji} **Börsen-{title}**
-{date_str} | {time_str} Uhr
+    output = f"""{emoji} **{prefix} {title}**
+{date_str} | {time_str} {time_suffix}
 
 {summary}
 """
+
+    sources_section = format_sources(top_headlines, labels)
+    if sources_section:
+        output = f"{output}\n{sources_section}\n"
     
     if args.json:
         print(json.dumps({
-            'title': f"Börsen-{title}",
+            'title': f"{prefix} {title}",
             'date': date_str,
             'time': time_str,
             'language': language,
             'summary': summary,
+            'sources': [
+                {'index': idx + 1, 'url': item.get('link', ''), 'source': item.get('source', ''), 'links': sorted(list(item.get('links', [])))}
+                for idx, item in enumerate(top_headlines)
+            ],
             'raw_data': {
                 'market': market_data,
                 'portfolio': portfolio_data
@@ -526,6 +994,7 @@ def main():
     parser.add_argument('--llm', action='store_true', help='Use LLM for briefing (default: deterministic)')
     parser.add_argument('--deadline', type=int, default=None, help='Overall deadline in seconds')
     parser.add_argument('--fast', action='store_true', help='Use fast mode (shorter timeouts, fewer items)')
+    parser.add_argument('--debug', action='store_true', help='Write debug log with sources')
 
     args = parser.parse_args()
     generate_briefing(args)

@@ -6,12 +6,31 @@ Generates and optionally sends to WhatsApp group.
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent
+
+
+def ensure_venv() -> None:
+    """Re-exec inside local venv if available and not already active."""
+    if os.environ.get("FINANCE_NEWS_VENV_BOOTSTRAPPED") == "1":
+        return
+    if sys.prefix != sys.base_prefix:
+        return
+    venv_python = Path(__file__).resolve().parent.parent / "venv" / "bin" / "python3"
+    if not venv_python.exists():
+        print("⚠️ finance-news venv missing; run scripts from the repo venv to avoid dependency errors.", file=sys.stderr)
+        return
+    env = os.environ.copy()
+    env["FINANCE_NEWS_VENV_BOOTSTRAPPED"] = "1"
+    os.execvpe(str(venv_python), [str(venv_python)] + sys.argv, env)
+
+
+ensure_venv()
 
 
 def send_to_whatsapp(message: str, group_name: str = "Niemand Boerse"):
@@ -54,9 +73,9 @@ def generate_and_send(args):
     
     # Generate the briefing
     cmd = [
-        'python3', SCRIPT_DIR / 'summarize.py',
+        sys.executable, SCRIPT_DIR / 'summarize.py',
         '--time', briefing_time,
-        '--style', args.style, '--llm', '--model', 'gemini',
+        '--style', args.style,
         '--lang', args.lang
     ]
 
@@ -65,6 +84,13 @@ def generate_and_send(args):
 
     if args.fast:
         cmd.append('--fast')
+
+    if args.llm:
+        cmd.append('--llm')
+        cmd.extend(['--model', args.model])
+
+    if args.debug:
+        cmd.append('--debug')
     
     # Pass --json flag if requested
     if args.json:
@@ -128,8 +154,13 @@ def main():
                         help='Output as JSON')
     parser.add_argument('--deadline', type=int, default=None,
                         help='Overall deadline in seconds')
+    parser.add_argument('--llm', action='store_true', help='Use LLM summary')
+    parser.add_argument('--model', choices=['claude', 'minimax', 'gemini'],
+                        default='claude', help='LLM model (only with --llm)')
     parser.add_argument('--fast', action='store_true',
                         help='Use fast mode (shorter timeouts, fewer items)')
+    parser.add_argument('--debug', action='store_true',
+                        help='Write debug log with sources')
     
     args = parser.parse_args()
     generate_and_send(args)
