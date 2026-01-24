@@ -14,26 +14,13 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from utils import ensure_venv
+
 from fetch_news import PortfolioError, get_market_news, get_portfolio_news
 
 SCRIPT_DIR = Path(__file__).parent
 CONFIG_DIR = SCRIPT_DIR.parent / "config"
 OUTPUT_DIR = SCRIPT_DIR.parent / "research"
-
-
-def ensure_venv() -> None:
-    """Re-exec inside local venv if available and not already active."""
-    if os.environ.get("FINANCE_NEWS_VENV_BOOTSTRAPPED") == "1":
-        return
-    if sys.prefix != sys.base_prefix:
-        return
-    venv_python = Path(__file__).resolve().parent.parent / "venv" / "bin" / "python3"
-    if not venv_python.exists():
-        print("⚠️ finance-news venv missing; run scripts from the repo venv to avoid dependency errors.", file=sys.stderr)
-        return
-    env = os.environ.copy()
-    env["FINANCE_NEWS_VENV_BOOTSTRAPPED"] = "1"
-    os.execvpe(str(venv_python), [str(venv_python)] + sys.argv, env)
 
 
 ensure_venv()

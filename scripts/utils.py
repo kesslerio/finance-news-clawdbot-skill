@@ -1,6 +1,24 @@
-"""Shared time/deadline helpers."""
+"""Shared helpers."""
 
+import os
+import sys
 import time
+from pathlib import Path
+
+
+def ensure_venv() -> None:
+    """Re-exec inside local venv if available and not already active."""
+    if os.environ.get("FINANCE_NEWS_VENV_BOOTSTRAPPED") == "1":
+        return
+    if sys.prefix != sys.base_prefix:
+        return
+    venv_python = Path(__file__).resolve().parent.parent / "venv" / "bin" / "python3"
+    if not venv_python.exists():
+        print("⚠️ finance-news venv missing; run scripts from the repo venv to avoid dependency errors.", file=sys.stderr)
+        return
+    env = os.environ.copy()
+    env["FINANCE_NEWS_VENV_BOOTSTRAPPED"] = "1"
+    os.execvpe(str(venv_python), [str(venv_python)] + sys.argv, env)
 
 
 def compute_deadline(deadline_sec: int | None) -> float | None:

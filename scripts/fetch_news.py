@@ -9,13 +9,14 @@ import os
 import shutil
 import subprocess
 import sys
-from utils import clamp_timeout, compute_deadline, time_left
 from datetime import datetime, timedelta
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 import ssl
-import urllib.request
 import urllib.error
-from email.utils import parsedate_to_datetime
+import urllib.request
+
+from utils import clamp_timeout, compute_deadline, ensure_venv, time_left
 
 SCRIPT_DIR = Path(__file__).parent
 CONFIG_DIR = SCRIPT_DIR.parent / "config"
@@ -38,21 +39,6 @@ DEFAULT_SOURCE_WEIGHTS = {
     "wsj": 3,
     "cnbc": 2
 }
-
-
-def ensure_venv() -> None:
-    """Re-exec inside local venv if available and not already active."""
-    if os.environ.get("FINANCE_NEWS_VENV_BOOTSTRAPPED") == "1":
-        return
-    if sys.prefix != sys.base_prefix:
-        return
-    venv_python = Path(__file__).resolve().parent.parent / "venv" / "bin" / "python3"
-    if not venv_python.exists():
-        print("⚠️ finance-news venv missing; run scripts from the repo venv to avoid dependency errors.", file=sys.stderr)
-        return
-    env = os.environ.copy()
-    env["FINANCE_NEWS_VENV_BOOTSTRAPPED"] = "1"
-    os.execvpe(str(venv_python), [str(venv_python)] + sys.argv, env)
 
 
 ensure_venv()

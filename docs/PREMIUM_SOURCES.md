@@ -20,7 +20,7 @@ If you have subscriptions and want premium content, follow the steps below.
 - ✅ Reuters (free via Yahoo RSS)
 
 **To disable premium sources:**
-1. Edit `config/sources.json`
+1. Edit `config/config.json` (legacy: `config/sources.json`)
 2. Set `"enabled": false` for WSJ/Barron's entries
 3. Done - no authentication needed
 
@@ -71,7 +71,7 @@ Create `config/cookies.json` (this file is gitignored):
 **Important:** Cookie domain must match feed URL domain:
 - WSJ feeds use `feeds.a.dj.com` (not `wsj.com`)
 - Barron's feeds use `www.barrons.com`
-- Check `config/sources.json` for actual feed URLs
+- Check `config/config.json` for actual feed URLs
 
 **Note:** Cookie names/values vary by site. Export from browser to get actual values.
 
@@ -179,7 +179,7 @@ def fetch_rss(url: str, limit: int = 10, cookies_dict: dict = None) -> list[dict
 - [ ] Correct domain in cookies.json:
   - WSJ: Use `feeds.a.dj.com` (not `wsj.com`)
   - Barron's: Use `www.barrons.com` (not `barrons.com`)
-  - Check `config/sources.json` for actual feed URLs
+- Check `config/config.json` for actual feed URLs
 - [ ] Cookie values copied completely (no truncation)
 - [ ] Browser session still active (test by visiting site)
 - [ ] File permissions correct (chmod 600)
