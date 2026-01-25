@@ -18,8 +18,15 @@ BASE_DIR="$( cd -P "${SCRIPT_DIR}/.." && pwd )"
 if [[ -d "/nix/store" ]]; then
   # Try to find libstdc++.so.6 in the store
   LIBPATH=$(find /nix/store -maxdepth 2 -name "*-gcc-*-lib" -print -quit 2>/dev/null)/lib
+  
+  # Try to find zlib (required for numpy)
+  ZLIBPATH=$(find /nix/store -maxdepth 4 -name "libz.so.1" -print -quit 2>/dev/null | xargs dirname)
+
   if [[ -d "$LIBPATH" ]]; then
     export LD_LIBRARY_PATH="$LIBPATH:$LD_LIBRARY_PATH"
+  fi
+  if [[ -d "$ZLIBPATH" ]]; then
+    export LD_LIBRARY_PATH="$ZLIBPATH:$LD_LIBRARY_PATH"
   fi
 fi
 
@@ -51,6 +58,7 @@ Commands:
   portfolio                       News for portfolio stocks
   portfolio-only                  Top gainers/losers from portfolio with news
   news <SYMBOL>                   News for specific ticker
+  score <SYMBOL>                  Analyze stock with Quality Compounder Score (QCS)
   
   portfolio-list                  List portfolio stocks
   portfolio-add <SYMBOL>          Add stock to portfolio
@@ -115,6 +123,15 @@ for a in articles:
     print(f\"• {a['title']}\")
     print(f\"  {a['link']}\n\")
 "
+    ;;
+  
+  score)
+    shift
+    if [[ -z "$1" ]]; then
+      echo "❌ Usage: finance-news score <SYMBOL>"
+      exit 1
+    fi
+    "$PYTHON_BIN" "$SCRIPT_DIR/score.py" "$1"
     ;;
   
   portfolio-list)
