@@ -26,17 +26,15 @@ args:
     default: "false"
     description: "Use fast mode: true or false"
 
-env:
-  SKILL_DIR: "${HOME}/projects/finance-news-clawdbot-skill"
-
 steps:
   # Generate briefing - outputs JSON with macro_message and portfolio_message
   - id: generate
     command: |
+      SKILL_DIR="${SKILL_DIR:-$HOME/projects/finance-news-clawdbot-skill}"
       FAST_FLAG=""
       if [ "${fast}" = "true" ]; then FAST_FLAG="--fast"; fi
       docker run --rm \
-        -v "${SKILL_DIR}/config:/app/config:ro" \
+        -v "$SKILL_DIR/config:/app/config:ro" \
         finance-news-briefing python3 scripts/briefing.py \
           --time "${time}" \
           --lang "${lang}" \
