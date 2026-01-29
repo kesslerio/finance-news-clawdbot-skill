@@ -326,28 +326,55 @@ def cmd_check(args) -> None:
     if args.json:
         print(json.dumps({"triggered": triggered, "watching": watching}, indent=2))
         return
-    
+
+    # Translations
+    lang = getattr(args, 'lang', 'en')
+    if lang == "de":
+        labels = {
+            "title": "PREISWARNUNGEN",
+            "in_zone": "IN KAUFZONE",
+            "buy": "KAUFEN!",
+            "target": "Ziel",
+            "watching": "BEOBACHTUNG",
+            "to_target": "noch",
+            "no_data": "Keine Preisdaten für Alerts verfügbar",
+        }
+    else:
+        labels = {
+            "title": "PRICE ALERTS",
+            "in_zone": "IN BUY ZONE",
+            "buy": "BUY SIGNAL",
+            "target": "target",
+            "watching": "WATCHING",
+            "to_target": "to target",
+            "no_data": "No price data available for alerts",
+        }
+
+    # Date header
+    date_str = datetime.now().strftime("%b %d, %Y") if lang == "en" else datetime.now().strftime("%d. %b %Y")
+    print(f"📊 {labels['title']} — {date_str}\n")
+
     # Human-readable output
     if triggered:
-        print("## 🟢 IN KAUFZONE\n")
+        print(f"🟢 {labels['in_zone']}:\n")
         for t in triggered:
             target_str = format_price(t["target_price"], t["currency"])
             current_str = format_price(t["current_price"], t["currency"])
             note = f'\n   "{t["note"]}"' if t.get("note") else ""
             user = f" — {t['set_by']}" if t.get("set_by") else ""
-            print(f"• **{t['ticker']}**: {current_str} (Ziel: {target_str}) ← KAUFEN!{note}{user}")
+            print(f"• {t['ticker']}: {current_str} ({labels['target']}: {target_str}) ← {labels['buy']}{note}{user}")
         print()
-    
+
     if watching:
-        print("## ⏳ WATCHLIST\n")
+        print(f"⏳ {labels['watching']}:\n")
         for w in sorted(watching, key=lambda x: x["pct_from_target"]):
             target_str = format_price(w["target_price"], w["currency"])
             current_str = format_price(w["current_price"], w["currency"])
-            print(f"• {w['ticker']}: {current_str} (Ziel: {target_str}) — noch {w['pct_from_target']:+.1f}%")
+            print(f"• {w['ticker']}: {current_str} ({labels['target']}: {target_str}) — {labels['to_target']} {abs(w['pct_from_target']):.1f}%")
         print()
-    
+
     if not triggered and not watching:
-        print("📭 No price data available for alerts")
+        print(f"📭 {labels['no_data']}")
 
 
 def check_alerts() -> dict:
@@ -451,6 +478,7 @@ def main():
     # check
     check_parser = subparsers.add_parser("check", help="Check alerts against prices")
     check_parser.add_argument("--json", action="store_true", help="JSON output")
+    check_parser.add_argument("--lang", default="en", help="Output language (en, de)")
     
     args = parser.parse_args()
     

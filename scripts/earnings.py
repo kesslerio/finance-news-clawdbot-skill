@@ -367,30 +367,87 @@ def check_earnings(args):
         except ValueError:
             continue
     
+    # Handle JSON output
+    if getattr(args, 'json', False):
+        result = {
+            "today": [
+                {
+                    "ticker": e["ticker"],
+                    "name": e["name"],
+                    "date": e["date"].isoformat(),
+                    "time": e["time"],
+                    "eps_estimate": e.get("eps_estimate"),
+                    "category": e.get("category", ""),
+                }
+                for e in sorted(today_list, key=lambda x: x.get("time", "zzz"))
+            ],
+            "this_week": [
+                {
+                    "ticker": e["ticker"],
+                    "name": e["name"],
+                    "date": e["date"].isoformat(),
+                    "time": e["time"],
+                    "eps_estimate": e.get("eps_estimate"),
+                    "category": e.get("category", ""),
+                }
+                for e in sorted(week_list, key=lambda x: x["date"])
+            ],
+        }
+        print(json.dumps(result, indent=2))
+        return
+
+    # Translations
+    lang = getattr(args, 'lang', 'en')
+    if lang == "de":
+        labels = {
+            "today": "EARNINGS HEUTE",
+            "week": "EARNINGS DIESE WOCHE",
+            "pre": "vor Börseneröffnung",
+            "post": "nach Börsenschluss",
+            "pre_short": "vor",
+            "post_short": "nach",
+            "est": "Erw",
+            "none": "Keine Earnings diese Woche",
+        }
+    else:
+        labels = {
+            "today": "EARNINGS TODAY",
+            "week": "EARNINGS THIS WEEK",
+            "pre": "pre-market",
+            "post": "after-close",
+            "pre_short": "pre",
+            "post_short": "post",
+            "est": "Est",
+            "none": "No earnings this week",
+        }
+
+    # Date header
+    date_str = datetime.now().strftime("%b %d, %Y") if lang == "en" else datetime.now().strftime("%d. %b %Y")
+
     # Output for briefing
     output = []
-    
+
     if today_list:
-        output.append("## 🔴 EARNINGS TODAY")
+        output.append(f"📅 {labels['today']} — {date_str}\n")
         for e in sorted(today_list, key=lambda x: x.get("time", "zzz")):
-            time_str = " (pre-market)" if e["time"] == "bmo" else " (after-close)" if e["time"] == "amc" else ""
-            eps_str = f" — Est: ${e['eps_estimate']:.2f}" if e.get("eps_estimate") else ""
-            output.append(f"• **{e['ticker']}**: {e['name']}{time_str}{eps_str}")
+            time_str = f" ({labels['pre']})" if e["time"] == "bmo" else f" ({labels['post']})" if e["time"] == "amc" else ""
+            eps_str = f" — {labels['est']}: ${e['eps_estimate']:.2f}" if e.get("eps_estimate") else ""
+            output.append(f"• {e['ticker']} — {e['name']}{time_str}{eps_str}")
         output.append("")
-    
+
     if week_list:
-        output.append("## 📅 EARNINGS THIS WEEK")
+        output.append(f"📅 {labels['week']}\n")
         for e in sorted(week_list, key=lambda x: x["date"]):
             day_name = e["date"].strftime("%a %d.%m")
-            time_str = " (pre)" if e["time"] == "bmo" else " (post)" if e["time"] == "amc" else ""
-            output.append(f"• **{day_name}**: {e['ticker']} — {e['name']}{time_str}")
+            time_str = f" ({labels['pre_short']})" if e["time"] == "bmo" else f" ({labels['post_short']})" if e["time"] == "amc" else ""
+            output.append(f"• {day_name}: {e['ticker']} — {e['name']}{time_str}")
         output.append("")
-    
+
     if output:
         print("\n".join(output))
     else:
         if args.verbose:
-            print("📅 No earnings this week")
+            print(f"📅 {labels['none']}")
 
 
 def get_briefing_section() -> str:
@@ -487,6 +544,8 @@ def main():
     # check command
     check_parser = subparsers.add_parser("check", help="Check today/this week")
     check_parser.add_argument("--verbose", "-v", action="store_true")
+    check_parser.add_argument("--json", action="store_true", help="JSON output")
+    check_parser.add_argument("--lang", default="en", help="Output language (en, de)")
     check_parser.set_defaults(func=check_earnings)
     
     # refresh command
