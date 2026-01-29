@@ -728,8 +728,9 @@ def format_portfolio_news(portfolio_data: dict) -> str:
     return '\n'.join(lines)
 
 
-def classify_sentiment(market_data: dict) -> str:
+def classify_sentiment(market_data: dict, portfolio_data: dict | None = None) -> str:
     changes = []
+    # Collect market indices changes
     for region in market_data.get("markets", {}).values():
         for idx in region.get("indices", {}).values():
             data = idx.get("data") or {}
@@ -742,6 +743,14 @@ def classify_sentiment(market_data: dict) -> str:
             prev_close = data.get("prev_close")
             if isinstance(price, (int, float)) and isinstance(prev_close, (int, float)) and prev_close != 0:
                 changes.append(((price - prev_close) / prev_close) * 100)
+
+    # Include portfolio price changes as fallback/supplement
+    if portfolio_data and "stocks" in portfolio_data:
+        for stock_data in portfolio_data["stocks"].values():
+            quote = stock_data.get("quote", {})
+            change = quote.get("change_percent")
+            if isinstance(change, (int, float)):
+                changes.append(change)
 
     if not changes:
         return "No data available"
@@ -762,7 +771,7 @@ def build_briefing_summary(
     labels: dict,
     language: str,
 ) -> str:
-    sentiment = classify_sentiment(market_data)
+    sentiment = classify_sentiment(market_data, portfolio_data)
     headlines = top_headlines or []
 
     heading_briefing = labels.get("heading_briefing", "Market Briefing")
@@ -1104,7 +1113,8 @@ def generate_briefing(args):
         
         if is_large:
             # Format top movers for Message 2
-            lines = [f"📊 **Portfolio Movers** (Top {len(portfolio_data['stocks'])} of {total_stocks})"]
+            portfolio_header = labels.get("heading_portfolio_movers", "Portfolio Movers")
+            lines = [f"📊 **{portfolio_header}** (Top {len(portfolio_data['stocks'])} of {total_stocks})"]
             
             # Sort stocks by magnitude of move for display
             stocks = []
