@@ -53,8 +53,7 @@ Headlines:
                 '--session-id', 'finance-news-translate-portfolio',
                 '--message', prompt,
                 '--json',
-                '--timeout', '60',
-                '--model', 'gemini'
+                '--timeout', '60'
             ],
             capture_output=True,
             text=True,
@@ -69,11 +68,22 @@ Headlines:
         return headlines
 
     # Extract reply from moltbot JSON output
+    # Format: {"result": {"payloads": [{"text": "..."}]}}
+    # Note: moltbot may print plugin loading messages before JSON, so find the JSON start
+    stdout = result.stdout
+    json_start = stdout.find('{')
+    if json_start > 0:
+        stdout = stdout[json_start:]
+
     try:
-        output = json.loads(result.stdout)
-        reply = output.get('reply', '') or output.get('message', '') or result.stdout
+        output = json.loads(stdout)
+        payloads = output.get('result', {}).get('payloads', [])
+        if payloads and payloads[0].get('text'):
+            reply = payloads[0]['text']
+        else:
+            reply = output.get('reply', '') or output.get('message', '') or stdout
     except json.JSONDecodeError:
-        reply = result.stdout
+        reply = stdout
 
     # Parse JSON array from reply
     json_text = reply.strip()
