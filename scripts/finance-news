@@ -64,13 +64,16 @@ Usage: finance-news <command> [options]
 Commands:
   setup                           Interactive setup wizard
   config                          Show current configuration
-  
+
   briefing [--morning|--evening]  Generate market briefing
   market                          Market overview (indices + headlines)
   portfolio                       News for portfolio stocks
   portfolio-only                  Top gainers/losers from portfolio with news
   news <SYMBOL>                   News for specific ticker
-  
+
+  alerts <subcommand>             Price target alerts (list, set, check, delete, snooze, update)
+  earnings <subcommand>           Earnings calendar (list, check, refresh)
+
   portfolio-list                  List portfolio stocks
   portfolio-add <SYMBOL>          Add stock to portfolio
   portfolio-remove <SYMBOL>       Remove stock from portfolio
@@ -158,7 +161,17 @@ for a in articles:
   portfolio-create)
     "$PYTHON_BIN" "$SCRIPT_DIR/portfolio.py" create
     ;;
-  
+
+  alerts)
+    shift
+    "$PYTHON_BIN" "$SCRIPT_DIR/alerts.py" "$@"
+    ;;
+
+  earnings)
+    shift
+    "$PYTHON_BIN" "$SCRIPT_DIR/earnings.py" "$@"
+    ;;
+
   setup)
     shift
     "$PYTHON_BIN" "$SCRIPT_DIR/setup.py" "$@"
