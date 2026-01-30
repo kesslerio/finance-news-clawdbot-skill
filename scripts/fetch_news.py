@@ -550,7 +550,38 @@ def get_market_news(
         'markets': {},
         'headlines': []
     }
-    
+
+    # Fetch market indices FIRST (fast, important for briefing)
+    for region, config in sources['markets'].items():
+        if time_left(deadline) is not None and time_left(deadline) <= 0:
+            break
+        if regions is not None and region not in regions:
+            continue
+
+        result['markets'][region] = {
+            'name': config['name'],
+            'indices': {}
+        }
+
+        symbols = config['indices']
+        if max_indices_per_region is not None:
+            symbols = symbols[:max_indices_per_region]
+
+        for symbol in symbols:
+            if time_left(deadline) is not None and time_left(deadline) <= 0:
+                break
+            data = fetch_market_data(
+                [symbol],
+                timeout=subprocess_timeout,
+                deadline=deadline,
+                allow_price_fallback=True,
+            )
+            if symbol in data:
+                result['markets'][region]['indices'][symbol] = {
+                    'name': config['index_names'].get(symbol, symbol),
+                    'data': data[symbol]
+                }
+
     # Fetch top headlines from preferred sources
     for source in headline_sources:
         if time_left(deadline) is not None and time_left(deadline) <= 0:
@@ -574,44 +605,6 @@ def get_market_news(
                     article['weight'] = source_weights.get(source, 1)
                 result['headlines'].extend(articles)
 
-    if time_left(deadline) is not None and time_left(deadline) <= 0:
-        return result
-
-    remaining = time_left(deadline)
-    if remaining is not None and remaining < 8:
-        return result
-
-    # Fetch market indices
-    for region, config in sources['markets'].items():
-        if time_left(deadline) is not None and time_left(deadline) <= 0:
-            break
-        if regions is not None and region not in regions:
-            continue
-
-        result['markets'][region] = {
-            'name': config['name'],
-            'indices': {}
-        }
-        
-        symbols = config['indices']
-        if max_indices_per_region is not None:
-            symbols = symbols[:max_indices_per_region]
-
-        for symbol in symbols:
-            if time_left(deadline) is not None and time_left(deadline) <= 0:
-                break
-            data = fetch_market_data(
-                [symbol],
-                timeout=subprocess_timeout,
-                deadline=deadline,
-                allow_price_fallback=True,
-            )
-            if symbol in data:
-                result['markets'][region]['indices'][symbol] = {
-                    'name': config['index_names'].get(symbol, symbol),
-                    'data': data[symbol]
-                }
-    
     return result
 
 

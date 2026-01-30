@@ -930,6 +930,7 @@ def build_briefing_summary(
     # Add market indices section
     lines.append(f"### {heading_markets}")
     markets = market_data.get("markets", {})
+    market_lines_added = False
     if markets:
         for region, data in markets.items():
             region_indices = []
@@ -943,7 +944,8 @@ def build_briefing_summary(
                     region_indices.append(f"{name}: {price:,.0f} ({change:+.2f}%)")
             if region_indices:
                 lines.append(f"• {' | '.join(region_indices)}")
-    else:
+                market_lines_added = True
+    if not market_lines_added:
         lines.append(no_data)
 
     lines.append("")

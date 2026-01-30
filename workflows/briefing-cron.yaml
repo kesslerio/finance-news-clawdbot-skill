@@ -36,6 +36,7 @@ steps:
       OUTFILE="/tmp/lobster-briefing-$$.json"
       docker run --rm \
         -v "$SKILL_DIR/config:/app/config:ro" \
+        -v "$SKILL_DIR/scripts:/app/scripts:ro" \
         finance-news-briefing python3 scripts/briefing.py \
           --time "${time}" \
           --lang "${lang}" \
