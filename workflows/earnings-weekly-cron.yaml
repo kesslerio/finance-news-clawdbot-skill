@@ -32,7 +32,7 @@ steps:
       MSG=$(cat)
       MSG=$(echo "$MSG" | tr -d '\r')
       # Only send if there are actual earnings next week
-      if echo "$MSG" | grep -q "EARNINGS NEXT WEEK\|EARNINGS NÄCHSTE WOCHE"; then
+      if echo "$MSG" | grep -qE "EARNINGS (NEXT WEEK|NÄCHSTE WOCHE)"; then
         moltbot message send \
           --channel "${channel}" \
           --target "${target}" \

@@ -340,11 +340,12 @@ def check_earnings(args):
     week_only = getattr(args, 'week', False)
 
     # For weekly mode (Sunday cron), show Mon-Fri of upcoming week
+    # Calculation: weekday() returns 0=Mon, 6=Sun. (7 - weekday) % 7 gives days until next Monday.
+    # Special case: if today is Monday (result=0), we want next Monday (7 days), not today.
     if week_only:
-        # Find next Monday (or today if already Monday)
         days_until_monday = (7 - today.weekday()) % 7
         if days_until_monday == 0 and today.weekday() != 0:
-            days_until_monday = 7  # Next week's Monday
+            days_until_monday = 7
         week_start = today + timedelta(days=days_until_monday)
         week_end = week_start + timedelta(days=4)  # Mon-Fri
     else:
