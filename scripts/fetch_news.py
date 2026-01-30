@@ -55,7 +55,7 @@ def fetch_with_retry(
             return None
 
         try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'Clawdbot/1.0'})
+            req = urllib.request.Request(url, headers={'User-Agent': 'OpenClaw/1.0'})
             with urllib.request.urlopen(req, timeout=timeout, context=SSL_CONTEXT) as response:
                 return response.read()
         except urllib.error.URLError as e:
@@ -166,7 +166,7 @@ def get_openbb_binary() -> str:
         "1. Install via pip: pip install openbb\n"
         "2. Use existing install: export OPENBB_QUOTE_BIN=/path/to/openbb-quote\n"
         "3. Add to PATH: export PATH=$PATH:$HOME/.local/bin\n\n"
-        "See: https://github.com/kesslerio/finance-news-moltbot-skill#dependencies"
+        "See: https://github.com/kesslerio/finance-news-openclaw-skill#dependencies"
     )
 
 

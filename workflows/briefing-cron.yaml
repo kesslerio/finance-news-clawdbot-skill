@@ -30,7 +30,7 @@ steps:
   # Generate briefing and save to temp file
   - id: generate
     command: |
-      SKILL_DIR="${SKILL_DIR:-$HOME/projects/finance-news-clawdbot-skill}"
+      SKILL_DIR="${SKILL_DIR:-$HOME/projects/finance-news-openclaw-skill}"
       FAST_FLAG=""
       if [ "${fast}" = "true" ]; then FAST_FLAG="--fast"; fi
       OUTFILE="/tmp/lobster-briefing-$$.json"
@@ -50,13 +50,13 @@ steps:
     command: |
       OUTFILE=$(cat)
       OUTFILE=$(echo "$OUTFILE" | tr -d '\n')
-      SKILL_DIR="${SKILL_DIR:-$HOME/projects/finance-news-clawdbot-skill}"
+      SKILL_DIR="${SKILL_DIR:-$HOME/projects/finance-news-openclaw-skill}"
       if [ "${lang}" = "de" ]; then
         python3 "$SKILL_DIR/scripts/translate_portfolio.py" "$OUTFILE" --lang de || true
       fi
       echo "$OUTFILE"
     stdin: $generate.stdout
-    description: Translate portfolio headlines via moltbot
+    description: Translate portfolio headlines via openclaw
 
   # Send macro briefing (market overview) - NO APPROVAL GATE
   - id: send_macro
@@ -65,7 +65,7 @@ steps:
       OUTFILE=$(echo "$OUTFILE" | tr -d '\n')
       MSG=$(jq -r '.macro_message // empty' "$OUTFILE")
       if [ -n "$MSG" ]; then
-        moltbot message send \
+        openclaw message send \
           --channel "${channel}" \
           --target "${target}" \
           --message "$MSG"
@@ -82,7 +82,7 @@ steps:
       OUTFILE=$(echo "$OUTFILE" | tr -d '\n')
       MSG=$(jq -r '.portfolio_message // empty' "$OUTFILE")
       if [ -n "$MSG" ]; then
-        moltbot message send \
+        openclaw message send \
           --channel "${channel}" \
           --target "${target}" \
           --message "$MSG"

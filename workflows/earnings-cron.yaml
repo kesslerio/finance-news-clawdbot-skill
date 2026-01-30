@@ -22,7 +22,7 @@ steps:
   # Check earnings calendar for today and this week
   - id: check_earnings
     command: |
-      SKILL_DIR="${SKILL_DIR:-$HOME/projects/finance-news-clawdbot-skill}"
+      SKILL_DIR="${SKILL_DIR:-$HOME/projects/finance-news-openclaw-skill}"
       python3 "$SKILL_DIR/scripts/earnings.py" check --lang "${lang}"
     description: Get today's earnings calendar
 
@@ -33,7 +33,7 @@ steps:
       MSG=$(echo "$MSG" | tr -d '\r')
       # Only send if there are actual earnings today
       if echo "$MSG" | grep -q "EARNINGS TODAY\|EARNINGS HEUTE"; then
-        moltbot message send \
+        openclaw message send \
           --channel "${channel}" \
           --target "${target}" \
           --message "$MSG"

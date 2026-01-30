@@ -167,7 +167,7 @@ def setup_schedule(sources: dict):
 
 
 def setup_cron_jobs(sources: dict):
-    """Set up Moltbot cron jobs based on configuration."""
+    """Set up OpenClaw cron jobs based on configuration."""
     print("\n📅 Setting up cron jobs...\n")
     
     schedule = sources.get('schedule', {})
@@ -190,7 +190,7 @@ def setup_cron_jobs(sources: dict):
         tz = schedule['morning'].get('timezone', 'America/Los_Angeles')
         
         print(f"  Creating morning briefing job: {morning_cron} ({tz})")
-        # Note: Actual cron creation would happen via moltbot cron add
+        # Note: Actual cron creation would happen via openclaw cron add
         print(f"    ✅ Morning briefing configured")
     
     # Evening job

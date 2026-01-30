@@ -22,7 +22,7 @@ steps:
   # Check earnings calendar for upcoming week
   - id: check_earnings
     command: |
-      SKILL_DIR="${SKILL_DIR:-$HOME/projects/finance-news-clawdbot-skill}"
+      SKILL_DIR="${SKILL_DIR:-$HOME/projects/finance-news-openclaw-skill}"
       python3 "$SKILL_DIR/scripts/earnings.py" check --week --lang "${lang}"
     description: Get upcoming week's earnings calendar
 
@@ -33,7 +33,7 @@ steps:
       MSG=$(echo "$MSG" | tr -d '\r')
       # Only send if there are actual earnings next week
       if echo "$MSG" | grep -qE "EARNINGS (NEXT WEEK|NÄCHSTE WOCHE)"; then
-        moltbot message send \
+        openclaw message send \
           --channel "${channel}" \
           --target "${target}" \
           --message "$MSG"

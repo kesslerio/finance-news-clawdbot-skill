@@ -109,7 +109,7 @@ def fetch_rss(url: str, limit: int = 10) -> list[dict]:
             cookies = all_cookies.get(domain, {})
     
     # Fetch with cookies and User-Agent
-    req = urllib.request.Request(url, headers={'User-Agent': 'Clawdbot/1.0'})
+    req = urllib.request.Request(url, headers={'User-Agent': 'OpenClaw/1.0'})
     if cookies:
         cookie_header = "; ".join([f"{k}={v}" for k, v in cookies.items()])
         req.add_header("Cookie", cookie_header)
