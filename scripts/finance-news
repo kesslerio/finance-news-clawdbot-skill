@@ -62,6 +62,7 @@ usage() {
 Usage: finance-news <command> [options]
 
 Commands:
+  install                         Install/rebuild Python venv (NixOS-compatible)
   setup                           Interactive setup wizard
   config                          Show current configuration
 
@@ -170,6 +171,11 @@ for a in articles:
   earnings)
     shift
     "$PYTHON_BIN" "$SCRIPT_DIR/earnings.py" "$@"
+    ;;
+
+  install)
+    shift
+    bash "$SCRIPT_DIR/venv-setup.sh" "$@"
     ;;
 
   setup)
