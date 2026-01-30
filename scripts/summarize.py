@@ -869,7 +869,7 @@ def build_briefing_summary(
             title = title or article.get("title", "")
             title = title.strip()
             pub_time = article.get("published_at")
-            age = time_ago(pub_time) if pub_time else ""
+            age = time_ago(pub_time) if isinstance(pub_time, (int, float)) and pub_time else ""
             age_str = f" • {age}" if age else ""
             lines.append(f"{idx}. {title} [{idx}] [{source}]{age_str}")
     else:
