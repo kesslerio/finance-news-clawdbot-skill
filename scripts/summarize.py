@@ -265,20 +265,23 @@ def extract_agent_reply(raw: str) -> str:
     return raw.strip()
 
 
-def run_agent_prompt(prompt: str, model: str = "claude", deadline: float | None = None, session_id: str = "finance-news-headlines", timeout: int = 45) -> str:
-    """Run a short prompt against moltbot agent and return raw reply text."""
+def run_agent_prompt(prompt: str, deadline: float | None = None, session_id: str = "finance-news-headlines", timeout: int = 45) -> str:
+    """Run a short prompt against moltbot agent and return raw reply text.
+
+    Uses the gateway's configured default model with automatic fallback.
+    Model selection is configured in moltbot.json, not per-request.
+    """
     try:
         cli_timeout = clamp_timeout(timeout, deadline)
         proc_timeout = clamp_timeout(timeout + 10, deadline)
         cmd = [
             'moltbot', 'agent',
+            '--agent', 'main',
             '--session-id', session_id,
             '--message', prompt,
             '--json',
             '--timeout', str(cli_timeout)
         ]
-        if model:
-            cmd.extend(['--model', model])
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -376,8 +379,6 @@ def select_top_headlines(
     headlines: list[dict],
     language: str,
     deadline: float | None,
-    model: str = "claude",
-    translation_models: list[str] | None = None,
     shortlist_size: int = HEADLINE_SHORTLIST_SIZE,
 ) -> tuple[list[dict], list[dict], str | None, str | None]:
     """Select top headlines using deterministic ranking.
@@ -406,7 +407,7 @@ def select_top_headlines(
         selected_ids: list[int] = []
         remaining = time_left(deadline)
         if remaining is None or remaining >= 10:
-            selected_ids = select_top_headline_ids(shortlist, deadline, model=model)
+            selected_ids = select_top_headline_ids(shortlist, deadline)
         if not selected_ids:
             selected_ids = list(range(1, min(TOP_HEADLINES_COUNT, len(shortlist)) + 1))
         
@@ -428,19 +429,16 @@ def select_top_headlines(
     translation_used = None
     if language == "de":
         titles = [item["title"] for item in selected]
-        translated, translation_used = translate_headlines(
-            titles,
-            deadline=deadline,
-            model_order=translation_models or [model],
-        )
-        if translated:
+        translated, success = translate_headlines(titles, deadline=deadline)
+        if success:
+            translation_used = "gateway"  # Model selected by gateway
             for item, translated_title in zip(selected, translated):
                 item["title_de"] = translated_title
 
-    return selected, shortlist, model, translation_used
+    return selected, shortlist, "gateway", translation_used
 
 
-def select_top_headline_ids(shortlist: list[dict], deadline: float | None, model: str = "claude") -> list[int]:
+def select_top_headline_ids(shortlist: list[dict], deadline: float | None) -> list[int]:
     prompt_lines = [
         "Select the 5 headlines with the widest market impact.",
         "Return JSON only: {\"selected\":[1,2,3,4,5]}.",
@@ -453,7 +451,7 @@ def select_top_headline_ids(shortlist: list[dict], deadline: float | None, model
         prompt_lines.append(f"{idx}. {item.get('title')} (sources: {sources})")
     prompt = "\n".join(prompt_lines)
 
-    reply = run_agent_prompt(prompt, model=model, deadline=deadline, session_id="finance-news-headlines")
+    reply = run_agent_prompt(prompt, deadline=deadline, session_id="finance-news-headlines")
     if reply.startswith("⚠️"):
         return []
     try:
@@ -475,15 +473,15 @@ def select_top_headline_ids(shortlist: list[dict], deadline: float | None, model
 def translate_headlines(
     titles: list[str],
     deadline: float | None,
-    model_order: list[str],
-) -> tuple[list[str], str | None]:
+) -> tuple[list[str], bool]:
     """Translate headlines to German using LLM.
-    
-    Returns (translated_titles, model_used) or (original_titles, None) on failure.
+
+    Uses gateway's configured model with automatic fallback.
+    Returns (translated_titles, success) or (original_titles, False) on failure.
     """
     if not titles:
-        return [], None
-    
+        return [], True
+
     prompt_lines = [
         "Translate these English headlines to German.",
         "Return ONLY a JSON array of strings in the same order.",
@@ -496,40 +494,38 @@ def translate_headlines(
         prompt_lines.append(f"{idx}. {title}")
     prompt = "\n".join(prompt_lines)
 
-    for model in model_order:
-        print(f"🔤 Translating {len(titles)} headlines with {model}...", file=sys.stderr)
-        reply = run_agent_prompt(prompt, model=model, deadline=deadline, session_id="finance-news-translate", timeout=60)
-        
-        if reply.startswith("⚠️"):
-            print(f"  ↳ {model} failed: {reply}", file=sys.stderr)
-            continue
-        
-        # Try to extract JSON from reply (may have markdown wrapper)
-        json_text = reply.strip()
-        if "```" in json_text:
-            # Extract from markdown code block
-            match = re.search(r'```(?:json)?\s*(.*?)```', json_text, re.DOTALL)
-            if match:
-                json_text = match.group(1).strip()
-        
-        try:
-            data = json.loads(json_text)
-        except json.JSONDecodeError as e:
-            print(f"  ↳ {model} JSON error: {e}", file=sys.stderr)
-            print(f"     Reply was: {reply[:200]}...", file=sys.stderr)
-            continue
-        
-        if isinstance(data, list) and all(isinstance(item, str) for item in data):
-            if len(data) == len(titles):
-                print(f"  ↳ ✅ Translation successful with {model}", file=sys.stderr)
-                return data, model
-            else:
-                print(f"  ↳ {model} returned {len(data)} items, expected {len(titles)}", file=sys.stderr)
+    print(f"🔤 Translating {len(titles)} headlines...", file=sys.stderr)
+    reply = run_agent_prompt(prompt, deadline=deadline, session_id="finance-news-translate", timeout=60)
+
+    if reply.startswith("⚠️"):
+        print(f"  ↳ Translation failed: {reply}", file=sys.stderr)
+        return titles, False
+
+    # Try to extract JSON from reply (may have markdown wrapper)
+    json_text = reply.strip()
+    if "```" in json_text:
+        # Extract from markdown code block
+        match = re.search(r'```(?:json)?\s*(.*?)```', json_text, re.DOTALL)
+        if match:
+            json_text = match.group(1).strip()
+
+    try:
+        data = json.loads(json_text)
+    except json.JSONDecodeError as e:
+        print(f"  ↳ JSON error: {e}", file=sys.stderr)
+        print(f"     Reply was: {reply[:200]}...", file=sys.stderr)
+        return titles, False
+
+    if isinstance(data, list) and all(isinstance(item, str) for item in data):
+        if len(data) == len(titles):
+            print(f"  ↳ ✅ Translation successful", file=sys.stderr)
+            return data, True
         else:
-            print(f"  ↳ {model} returned invalid format: {type(data)}", file=sys.stderr)
-    
-    print(f"⚠️ Translation failed for all models, using English", file=sys.stderr)
-    return titles, None
+            print(f"  ↳ Returned {len(data)} items, expected {len(titles)}", file=sys.stderr)
+    else:
+        print(f"  ↳ Invalid format: {type(data)}", file=sys.stderr)
+
+    return titles, False
 
 
 def summarize_with_claude(
@@ -604,9 +600,9 @@ Use only the following information for the briefing:
         result = subprocess.run(
             [
                 'moltbot', 'agent',
+                '--agent', 'main',
                 '--session-id', 'finance-news-briefing',
                 '--message', prompt,
-                '--model', 'minimax',
                 '--json',
                 '--timeout', str(cli_timeout)
             ],
@@ -1009,23 +1005,8 @@ def generate_briefing(args):
         subprocess_timeout=subprocess_timeout,
     )
 
-    model_env = os.environ.get("FINANCE_NEWS_HEADLINE_MODEL")
-    headline_model = args.model if args.llm else (model_env or "gemini")
-    fallback_env = os.environ.get("FINANCE_NEWS_HEADLINE_FALLBACKS")
-    fallback_list = parse_model_list(fallback_env, config.get("llm", {}).get("headline_model_order", DEFAULT_LLM_FALLBACK))
-    if headline_model not in fallback_list:
-        fallback_list = [headline_model] + [m for m in fallback_list if m != headline_model]
-    translation_primary = os.environ.get("FINANCE_NEWS_TRANSLATION_MODEL")
-    translation_fallback_env = os.environ.get("FINANCE_NEWS_TRANSLATION_FALLBACKS")
-    translation_list = parse_model_list(
-        translation_fallback_env,
-        config.get("llm", {}).get("translation_model_order", DEFAULT_LLM_FALLBACK),
-    )
-    if translation_primary:
-        if translation_primary not in translation_list:
-            translation_list = [translation_primary] + translation_list
-        else:
-            translation_list = [translation_primary] + [m for m in translation_list if m != translation_primary]
+    # Model selection is now handled by the moltbot gateway (configured in moltbot.json)
+    # Environment variables for model override are deprecated
 
     shortlist_by_lang = config.get("headline_shortlist_size_by_lang", {})
     shortlist_size = HEADLINE_SHORTLIST_SIZE
@@ -1037,25 +1018,13 @@ def generate_briefing(args):
     remaining = time_left(deadline)
     if remaining is not None and remaining < 12:
         headline_deadline = compute_deadline(12)
-    top_headlines: list[dict] = []
-    headline_shortlist: list[dict] = []
-    headline_model_used: str | None = None
-    translation_model_used: str | None = None
-    for candidate in fallback_list:
-        selected, shortlist, used_model, used_translation = select_top_headlines(
-            market_data.get("headlines", []),
-            language=language,
-            deadline=headline_deadline,
-            model=candidate,
-            translation_models=translation_list,
-            shortlist_size=shortlist_size,
-        )
-        if selected:
-            top_headlines = selected
-            headline_shortlist = shortlist
-            headline_model_used = used_model
-            translation_model_used = used_translation
-            break
+    # Select top headlines (model selection handled by gateway)
+    top_headlines, headline_shortlist, headline_model_used, translation_model_used = select_top_headlines(
+        market_data.get("headlines", []),
+        language=language,
+        deadline=headline_deadline,
+        shortlist_size=shortlist_size,
+    )
     
     # Get portfolio news (limit stocks for performance)
     portfolio_deadline_sec = int(config.get("portfolio_deadline_sec", 360))
@@ -1108,7 +1077,6 @@ def generate_briefing(args):
             "headline_shortlist": headline_shortlist,
             "headline_model_used": headline_model_used,
             "translation_model_used": translation_model_used,
-            "headline_model_attempts": fallback_list
         })
 
     def write_debug_once(extra: dict | None = None) -> None:
@@ -1280,8 +1248,7 @@ def generate_briefing(args):
             title_translations = {}
             if language == "de" and all_articles:
                 titles_to_translate = [art.get('title', '') for art in all_articles]
-                translation_model_order = config.get("llm", {}).get("translation_model_order", ["gemini", "minimax", "claude"])
-                translated, _ = translate_headlines(titles_to_translate, deadline=None, model_order=translation_model_order)
+                translated, _ = translate_headlines(titles_to_translate, deadline=None)
                 for orig, trans in zip(titles_to_translate, translated):
                     title_translations[orig] = trans
 
@@ -1356,8 +1323,7 @@ def main():
                         default='briefing', help='Summary style')
     parser.add_argument('--time', choices=['morning', 'evening'],
                         default=None, help='Briefing type (default: auto)')
-    parser.add_argument('--model', choices=['claude', 'minimax', 'gemini'],
-                        default='claude', help='AI model for summarization')
+    # Note: --model removed - model selection is now handled by moltbot gateway config
     parser.add_argument('--json', action='store_true', help='Output as JSON')
     parser.add_argument('--research', action='store_true', help='Include deep research section (slower)')
     parser.add_argument('--llm', action='store_true', help='Use LLM for briefing (default: deterministic)')
