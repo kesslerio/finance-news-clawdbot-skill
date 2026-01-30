@@ -63,8 +63,11 @@ if [[ -d "/nix/store" ]]; then
     elif [[ -d "$HOME/.linuxbrew/lib" ]]; then
         LIBSTDCXX_PATH="$HOME/.linuxbrew/lib"
     else
-        # Try nix store
-        LIBSTDCXX_PATH=$(find /nix/store -maxdepth 2 -name "*-gcc-*-lib" -print -quit 2>/dev/null)/lib
+        # Try nix store - only set if find returns a result
+        GCC_LIB_DIR=$(find /nix/store -maxdepth 2 -name "*-gcc-*-lib" -print -quit 2>/dev/null)
+        if [[ -n "$GCC_LIB_DIR" && -d "$GCC_LIB_DIR/lib" ]]; then
+            LIBSTDCXX_PATH="$GCC_LIB_DIR/lib"
+        fi
     fi
 
     if [[ -n "$LIBSTDCXX_PATH" && -d "$LIBSTDCXX_PATH" ]]; then
