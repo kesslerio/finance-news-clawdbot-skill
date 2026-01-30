@@ -1257,11 +1257,22 @@ def generate_briefing(args):
     if portfolio_data:
         p_meta = portfolio_data.get('meta', {})
         total_stocks = p_meta.get('total_stocks')
-        
+
         # Determine if we should split (Large portfolio or explicitly requested)
         is_large = total_stocks and total_stocks > 15
-        
+
         if is_large:
+            # Load portfolio metadata directly for company names (fallback)
+            portfolio_meta = {}
+            portfolio_csv = CONFIG_DIR / "portfolio.csv"
+            if portfolio_csv.exists():
+                import csv
+                with open(portfolio_csv, 'r') as f:
+                    for row in csv.DictReader(f):
+                        sym_key = row.get('symbol', '').strip().upper()
+                        if sym_key:
+                            portfolio_meta[sym_key] = row
+
             # Format top movers for Message 2
             portfolio_header = labels.get("heading_portfolio_movers", "Portfolio Movers")
             lines = [f"📊 **{portfolio_header}** (Top {len(portfolio_data['stocks'])} of {total_stocks})"]
@@ -1273,7 +1284,8 @@ def generate_briefing(args):
                 change = quote.get('change_percent', 0)
                 price = quote.get('price')
                 info = data.get('info', {})
-                name = info.get('name', '') or sym  # Use name from portfolio.csv, fallback to symbol
+                # Try info first, then fallback to direct portfolio lookup
+                name = info.get('name', '') or portfolio_meta.get(sym.upper(), {}).get('name', '') or sym
                 stocks.append({'symbol': sym, 'name': name, 'change': change, 'price': price, 'articles': data.get('articles', []), 'info': info})
 
             stocks.sort(key=lambda x: x['change'], reverse=True)
