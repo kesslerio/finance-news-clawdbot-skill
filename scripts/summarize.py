@@ -888,6 +888,7 @@ def build_briefing_summary(
     headlines = top_headlines or []
 
     heading_briefing = labels.get("heading_briefing", "Market Briefing")
+    heading_markets = labels.get("heading_markets", "Markets")
     heading_sentiment = labels.get("heading_sentiment", "Sentiment")
     heading_top = labels.get("heading_top_headlines", "Top Headlines")
     heading_portfolio = labels.get("heading_portfolio_impact", "Portfolio Impact")
@@ -924,7 +925,31 @@ def build_briefing_summary(
             else:
                 sentiment_explanation = f"Avg {avg_change:+.1f}%"
 
-    lines = [f"## {heading_briefing}", "", f"### {heading_sentiment}: {sentiment_display}"]
+    lines = [f"## {heading_briefing}", ""]
+
+    # Add market indices section
+    lines.append(f"### {heading_markets}")
+    markets = market_data.get("markets", {})
+    market_lines_added = False
+    if markets:
+        for region, data in markets.items():
+            region_indices = []
+            for symbol, idx in data.get("indices", {}).items():
+                idx_data = idx.get("data") or {}
+                price = idx_data.get("price")
+                change = idx_data.get("change_percent")
+                name = idx.get("name", symbol)
+                if price is not None and change is not None:
+                    emoji = "📈" if change >= 0 else "📉"
+                    region_indices.append(f"{name}: {price:,.0f} ({change:+.2f}%)")
+            if region_indices:
+                lines.append(f"• {' | '.join(region_indices)}")
+                market_lines_added = True
+    if not market_lines_added:
+        lines.append(no_data)
+
+    lines.append("")
+    lines.append(f"### {heading_sentiment}: {sentiment_display}")
     if sentiment_explanation:
         lines.append(sentiment_explanation)
 
@@ -957,20 +982,72 @@ def build_briefing_summary(
     lines.append("")
     lines.append(f"### {heading_reco}")
 
+    # Load portfolio metadata for sector analysis
+    portfolio_meta = {}
+    portfolio_csv = CONFIG_DIR / "portfolio.csv"
+    if portfolio_csv.exists():
+        import csv
+        with open(portfolio_csv, 'r') as f:
+            for row in csv.DictReader(f):
+                sym_key = row.get('symbol', '').strip().upper()
+                if sym_key:
+                    portfolio_meta[sym_key] = row
+
+    # Group movers by sector/category
+    def group_by_sector(stocks: list[dict], direction: str) -> list[str]:
+        """Group stocks by sector and return formatted lines."""
+        sector_groups: dict[str, list[dict]] = {}
+        for s in stocks:
+            sym = s['symbol'].upper()
+            category = portfolio_meta.get(sym, {}).get('category', 'Other')
+            if category not in sector_groups:
+                sector_groups[category] = []
+            sector_groups[category].append(s)
+
+        result_lines = []
+        # Sort sectors by total move magnitude
+        sorted_sectors = sorted(
+            sector_groups.items(),
+            key=lambda x: sum(abs(s['change']) for s in x[1]),
+            reverse=True
+        )
+
+        for sector, sector_stocks in sorted_sectors[:3]:  # Top 3 sectors
+            if len(sector_stocks) >= 2:
+                # Multiple stocks in sector - show sector trend
+                emoji = "📈" if direction == "up" else "📉"
+                stocks_str = ", ".join(f"{s['symbol']} ({s['change']:+.1f}%)" for s in sector_stocks[:3])
+                if language == "de":
+                    result_lines.append(f"{emoji} {sector}: {stocks_str}")
+                else:
+                    result_lines.append(f"{emoji} {sector}: {stocks_str}")
+            else:
+                # Single stock - just list with percentage
+                s = sector_stocks[0]
+                result_lines.append(f"{s['symbol']} ({s['change']:+.1f}%)")
+
+        return result_lines
+
     # Build watchpoints with specific context
     watchpoint_lines = []
     if sentiment == "Bullish":
         watchpoint_lines.append(rec_bullish)
-        if top_gainers and language == "de":
-            watchpoint_lines.append(f"Stärke bei: {', '.join(s['symbol'] for s in top_gainers[:3])}")
-        elif top_gainers:
-            watchpoint_lines.append(f"Strength in: {', '.join(s['symbol'] for s in top_gainers[:3])}")
+        if top_gainers:
+            sector_lines = group_by_sector(top_gainers, "up")
+            if sector_lines:
+                if language == "de":
+                    watchpoint_lines.append(f"Stärke: {'; '.join(sector_lines)}")
+                else:
+                    watchpoint_lines.append(f"Strength: {'; '.join(sector_lines)}")
     elif sentiment == "Bearish":
         watchpoint_lines.append(rec_bearish)
-        if top_losers and language == "de":
-            watchpoint_lines.append(f"Unter Druck: {', '.join(s['symbol'] for s in top_losers[:3])}")
-        elif top_losers:
-            watchpoint_lines.append(f"Under pressure: {', '.join(s['symbol'] for s in top_losers[:3])}")
+        if top_losers:
+            sector_lines = group_by_sector(top_losers, "down")
+            if sector_lines:
+                if language == "de":
+                    watchpoint_lines.append(f"Unter Druck: {'; '.join(sector_lines)}")
+                else:
+                    watchpoint_lines.append(f"Under pressure: {'; '.join(sector_lines)}")
     elif sentiment == "Neutral":
         watchpoint_lines.append(rec_neutral)
     else:
@@ -992,8 +1069,8 @@ def generate_briefing(args):
     try:
         default_deadline = int(env_deadline) if env_deadline else 300
     except ValueError:
-        print("⚠️ Invalid FINANCE_NEWS_DEADLINE_SEC; using default 300s", file=sys.stderr)
-        default_deadline = 300
+        print("⚠️ Invalid FINANCE_NEWS_DEADLINE_SEC; using default 600s", file=sys.stderr)
+        default_deadline = 600
     deadline_sec = args.deadline if args.deadline is not None else default_deadline
     deadline = compute_deadline(deadline_sec)
     rss_timeout = int(os.environ.get("FINANCE_NEWS_RSS_TIMEOUT_SEC", "15"))
@@ -1234,11 +1311,22 @@ def generate_briefing(args):
     if portfolio_data:
         p_meta = portfolio_data.get('meta', {})
         total_stocks = p_meta.get('total_stocks')
-        
+
         # Determine if we should split (Large portfolio or explicitly requested)
         is_large = total_stocks and total_stocks > 15
-        
+
         if is_large:
+            # Load portfolio metadata directly for company names (fallback)
+            portfolio_meta = {}
+            portfolio_csv = CONFIG_DIR / "portfolio.csv"
+            if portfolio_csv.exists():
+                import csv
+                with open(portfolio_csv, 'r') as f:
+                    for row in csv.DictReader(f):
+                        sym_key = row.get('symbol', '').strip().upper()
+                        if sym_key:
+                            portfolio_meta[sym_key] = row
+
             # Format top movers for Message 2
             portfolio_header = labels.get("heading_portfolio_movers", "Portfolio Movers")
             lines = [f"📊 **{portfolio_header}** (Top {len(portfolio_data['stocks'])} of {total_stocks})"]
@@ -1250,7 +1338,8 @@ def generate_briefing(args):
                 change = quote.get('change_percent', 0)
                 price = quote.get('price')
                 info = data.get('info', {})
-                name = info.get('name', '') or sym  # Use name from portfolio.csv, fallback to symbol
+                # Try info first, then fallback to direct portfolio lookup
+                name = info.get('name', '') or portfolio_meta.get(sym.upper(), {}).get('name', '') or sym
                 stocks.append({'symbol': sym, 'name': name, 'change': change, 'price': price, 'articles': data.get('articles', []), 'info': info})
 
             stocks.sort(key=lambda x: x['change'], reverse=True)

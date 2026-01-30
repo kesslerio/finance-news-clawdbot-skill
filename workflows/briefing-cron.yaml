@@ -30,12 +30,20 @@ steps:
   # Generate briefing and save to temp file
   - id: generate
     command: |
-      SKILL_DIR="${SKILL_DIR:-$HOME/projects/finance-news-openclaw-skill}"
+      SKILL_DIR="${SKILL_DIR:-$HOME/projects/skills/personal/finance-news}"
       FAST_FLAG=""
       if [ "${fast}" = "true" ]; then FAST_FLAG="--fast"; fi
       OUTFILE="/tmp/lobster-briefing-$$.json"
+      # Resolve openbb-quote symlink for Docker mount
+      OPENBB_BIN=$(realpath "$HOME/.local/bin/openbb-quote" 2>/dev/null || echo "")
+      OPENBB_MOUNT=""
+      if [ -f "$OPENBB_BIN" ]; then
+        OPENBB_MOUNT="-v $OPENBB_BIN:/usr/local/bin/openbb-quote:ro"
+      fi
       docker run --rm \
         -v "$SKILL_DIR/config:/app/config:ro" \
+        -v "$SKILL_DIR/scripts:/app/scripts:ro" \
+        $OPENBB_MOUNT \
         finance-news-briefing python3 scripts/briefing.py \
           --time "${time}" \
           --lang "${lang}" \
@@ -50,7 +58,7 @@ steps:
     command: |
       OUTFILE=$(cat)
       OUTFILE=$(echo "$OUTFILE" | tr -d '\n')
-      SKILL_DIR="${SKILL_DIR:-$HOME/projects/finance-news-openclaw-skill}"
+      SKILL_DIR="${SKILL_DIR:-$HOME/projects/skills/personal/finance-news}"
       if [ "${lang}" = "de" ]; then
         python3 "$SKILL_DIR/scripts/translate_portfolio.py" "$OUTFILE" --lang de || true
       fi
