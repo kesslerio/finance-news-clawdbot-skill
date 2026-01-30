@@ -888,6 +888,7 @@ def build_briefing_summary(
     headlines = top_headlines or []
 
     heading_briefing = labels.get("heading_briefing", "Market Briefing")
+    heading_markets = labels.get("heading_markets", "Markets")
     heading_sentiment = labels.get("heading_sentiment", "Sentiment")
     heading_top = labels.get("heading_top_headlines", "Top Headlines")
     heading_portfolio = labels.get("heading_portfolio_impact", "Portfolio Impact")
@@ -924,7 +925,29 @@ def build_briefing_summary(
             else:
                 sentiment_explanation = f"Avg {avg_change:+.1f}%"
 
-    lines = [f"## {heading_briefing}", "", f"### {heading_sentiment}: {sentiment_display}"]
+    lines = [f"## {heading_briefing}", ""]
+
+    # Add market indices section
+    lines.append(f"### {heading_markets}")
+    markets = market_data.get("markets", {})
+    if markets:
+        for region, data in markets.items():
+            region_indices = []
+            for symbol, idx in data.get("indices", {}).items():
+                idx_data = idx.get("data") or {}
+                price = idx_data.get("price")
+                change = idx_data.get("change_percent")
+                name = idx.get("name", symbol)
+                if price is not None and change is not None:
+                    emoji = "📈" if change >= 0 else "📉"
+                    region_indices.append(f"{name}: {price:,.0f} ({change:+.2f}%)")
+            if region_indices:
+                lines.append(f"• {' | '.join(region_indices)}")
+    else:
+        lines.append(no_data)
+
+    lines.append("")
+    lines.append(f"### {heading_sentiment}: {sentiment_display}")
     if sentiment_explanation:
         lines.append(sentiment_explanation)
 
