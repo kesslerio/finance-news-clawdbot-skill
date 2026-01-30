@@ -105,6 +105,24 @@ Anlageberatung dar. Treffen Sie Ihre eigenen Anlageentscheidungen und führen Si
 financial advice. Always do your own research before making investment decisions."""
 
 
+def time_ago(timestamp: float) -> str:
+    """Convert Unix timestamp to human-readable time ago."""
+    if not timestamp:
+        return ""
+    delta = datetime.now().timestamp() - timestamp
+    if delta < 0:
+        return ""
+    if delta < 3600:
+        mins = int(delta / 60)
+        return f"{mins}m ago"
+    elif delta < 86400:
+        hours = int(delta / 3600)
+        return f"{hours}h ago"
+    else:
+        days = int(delta / 86400)
+        return f"{days}d ago"
+
+
 STYLE_PROMPTS = {
     "briefing": f"""{HARDENED_SYSTEM_PROMPT}
 
@@ -850,7 +868,10 @@ def build_briefing_summary(
             title = article.get("title_de") if language == "de" else None
             title = title or article.get("title", "")
             title = title.strip()
-            lines.append(f"{idx}. {title} [{idx}] [{source}]")
+            pub_time = article.get("published_at")
+            age = time_ago(pub_time) if pub_time else ""
+            age_str = f" • {age}" if age else ""
+            lines.append(f"{idx}. {title} [{idx}] [{source}]{age_str}")
     else:
         lines.append(no_data)
 
