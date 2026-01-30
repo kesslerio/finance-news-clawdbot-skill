@@ -22,7 +22,7 @@ steps:
   # Check alerts against current prices
   - id: check_alerts
     command: |
-      SKILL_DIR="${SKILL_DIR:-$HOME/projects/finance-news-clawdbot-skill}"
+      SKILL_DIR="${SKILL_DIR:-$HOME/projects/finance-news-openclaw-skill}"
       python3 "$SKILL_DIR/scripts/alerts.py" check --lang "${lang}"
     description: Check price alerts against current prices
 
@@ -33,7 +33,7 @@ steps:
       MSG=$(echo "$MSG" | tr -d '\r')
       # Only send if message has actual content (not just "No price data" message)
       if echo "$MSG" | grep -q "IN BUY ZONE\|IN KAUFZONE\|WATCHING\|BEOBACHTUNG"; then
-        moltbot message send \
+        openclaw message send \
           --channel "${channel}" \
           --target "${target}" \
           --message "$MSG"

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Translate portfolio headlines in briefing JSON using moltbot.
+"""Translate portfolio headlines in briefing JSON using openclaw.
 
 Usage: python3 translate_portfolio.py /path/to/briefing.json [--lang de]
 
-Reads briefing JSON, translates portfolio article headlines via moltbot,
+Reads briefing JSON, translates portfolio article headlines via openclaw,
 writes back the modified JSON.
 """
 
@@ -32,7 +32,7 @@ def extract_headlines(portfolio_message: str) -> list[str]:
 
 
 def translate_headlines(headlines: list[str], lang: str = "de") -> list[str]:
-    """Translate headlines using moltbot agent."""
+    """Translate headlines using openclaw agent."""
     if not headlines:
         return []
 
@@ -49,7 +49,7 @@ Headlines:
     try:
         result = subprocess.run(
             [
-                'moltbot', 'agent',
+                'openclaw', 'agent',
                 '--session-id', 'finance-news-translate-portfolio',
                 '--message', prompt,
                 '--json',
@@ -64,12 +64,12 @@ Headlines:
         return headlines
 
     if result.returncode != 0:
-        print(f"⚠️ moltbot error: {result.stderr}", file=sys.stderr)
+        print(f"⚠️ openclaw error: {result.stderr}", file=sys.stderr)
         return headlines
 
-    # Extract reply from moltbot JSON output
+    # Extract reply from openclaw JSON output
     # Format: {"result": {"payloads": [{"text": "..."}]}}
-    # Note: moltbot may print plugin loading messages before JSON, so find the JSON start
+    # Note: openclaw may print plugin loading messages before JSON, so find the JSON start
     stdout = result.stdout
     json_start = stdout.find('{')
     if json_start > 0:

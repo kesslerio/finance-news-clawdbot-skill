@@ -279,16 +279,16 @@ def extract_agent_reply(raw: str) -> str:
 
 
 def run_agent_prompt(prompt: str, deadline: float | None = None, session_id: str = "finance-news-headlines", timeout: int = 45) -> str:
-    """Run a short prompt against moltbot agent and return raw reply text.
+    """Run a short prompt against openclaw agent and return raw reply text.
 
     Uses the gateway's configured default model with automatic fallback.
-    Model selection is configured in moltbot.json, not per-request.
+    Model selection is configured in openclaw.json, not per-request.
     """
     try:
         cli_timeout = clamp_timeout(timeout, deadline)
         proc_timeout = clamp_timeout(timeout + 10, deadline)
         cmd = [
-            'moltbot', 'agent',
+            'openclaw', 'agent',
             '--agent', 'main',
             '--session-id', session_id,
             '--message', prompt,
@@ -306,7 +306,7 @@ def run_agent_prompt(prompt: str, deadline: float | None = None, session_id: str
     except TimeoutError:
         return "⚠️ LLM error: deadline exceeded"
     except FileNotFoundError:
-        return "⚠️ LLM error: moltbot CLI not found"
+        return "⚠️ LLM error: openclaw CLI not found"
     except OSError as exc:
         return f"⚠️ LLM error: {exc}"
 
@@ -547,7 +547,7 @@ def summarize_with_claude(
     style: str = "briefing",
     deadline: float | None = None,
 ) -> str:
-    """Generate AI summary using Claude via Moltbot agent."""
+    """Generate AI summary using Claude via OpenClaw agent."""
     prompt = f"""{STYLE_PROMPTS.get(style, STYLE_PROMPTS['briefing'])}
 
 {LANG_PROMPTS.get(language, LANG_PROMPTS['de'])}
@@ -562,7 +562,7 @@ Use only the following information for the briefing:
         proc_timeout = clamp_timeout(150, deadline)
         result = subprocess.run(
             [
-                'moltbot', 'agent',
+                'openclaw', 'agent',
                 '--session-id', 'finance-news-briefing',
                 '--message', prompt,
                 '--json',
@@ -577,7 +577,7 @@ Use only the following information for the briefing:
     except TimeoutError:
         return "⚠️ Claude briefing error: deadline exceeded"
     except FileNotFoundError:
-        return "⚠️ Claude briefing error: moltbot CLI not found"
+        return "⚠️ Claude briefing error: openclaw CLI not found"
     except OSError as exc:
         return f"⚠️ Claude briefing error: {exc}"
 
@@ -597,7 +597,7 @@ def summarize_with_minimax(
     style: str = "briefing",
     deadline: float | None = None,
 ) -> str:
-    """Generate AI summary using MiniMax model via moltbot agent."""
+    """Generate AI summary using MiniMax model via openclaw agent."""
     prompt = f"""{STYLE_PROMPTS.get(style, STYLE_PROMPTS['briefing'])}
 
 {LANG_PROMPTS.get(language, LANG_PROMPTS['de'])}
@@ -612,7 +612,7 @@ Use only the following information for the briefing:
         proc_timeout = clamp_timeout(150, deadline)
         result = subprocess.run(
             [
-                'moltbot', 'agent',
+                'openclaw', 'agent',
                 '--agent', 'main',
                 '--session-id', 'finance-news-briefing',
                 '--message', prompt,
@@ -628,7 +628,7 @@ Use only the following information for the briefing:
     except TimeoutError:
         return "⚠️ MiniMax briefing error: deadline exceeded"
     except FileNotFoundError:
-        return "⚠️ MiniMax briefing error: moltbot CLI not found"
+        return "⚠️ MiniMax briefing error: openclaw CLI not found"
     except OSError as exc:
         return f"⚠️ MiniMax briefing error: {exc}"
 
@@ -1018,7 +1018,7 @@ def generate_briefing(args):
         subprocess_timeout=subprocess_timeout,
     )
 
-    # Model selection is now handled by the moltbot gateway (configured in moltbot.json)
+    # Model selection is now handled by the openclaw gateway (configured in openclaw.json)
     # Environment variables for model override are deprecated
 
     shortlist_by_lang = config.get("headline_shortlist_size_by_lang", {})
@@ -1348,7 +1348,7 @@ def main():
                         default='briefing', help='Summary style')
     parser.add_argument('--time', choices=['morning', 'evening'],
                         default=None, help='Briefing type (default: auto)')
-    # Note: --model removed - model selection is now handled by moltbot gateway config
+    # Note: --model removed - model selection is now handled by openclaw gateway config
     parser.add_argument('--json', action='store_true', help='Output as JSON')
     parser.add_argument('--research', action='store_true', help='Include deep research section (slower)')
     parser.add_argument('--llm', action='store_true', help='Use LLM for briefing (default: deterministic)')

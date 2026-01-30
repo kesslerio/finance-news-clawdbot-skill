@@ -1,4 +1,4 @@
-# Finance News Skill for Moltbot
+# Finance News Skill for OpenClaw
 
 AI-powered market news briefings with configurable language output and automated delivery.
 
@@ -8,7 +8,7 @@ AI-powered market news briefings with configurable language output and automated
 - **Global markets:** US (S&P, Dow, NASDAQ), Europe (DAX, STOXX, FTSE), Japan (Nikkei)
 - **AI summaries:** LLM-powered analysis in German or English
 - **Automated briefings:** Morning (market open) and evening (market close)
-- **WhatsApp/Telegram delivery:** Send briefings via moltbot
+- **WhatsApp/Telegram delivery:** Send briefings via openclaw
 - **Portfolio tracking:** Personalized news for your stocks with price alerts
 - **Lobster workflows:** Approval gates before sending
 
@@ -53,15 +53,15 @@ finance-news briefing --morning --lang de --fast --deadline 300
 |----------|-------------|---------|
 | `FINANCE_NEWS_TARGET` | Delivery target (WhatsApp JID, group name, or Telegram chat ID) | `120363421796203667@g.us` |
 | `FINANCE_NEWS_CHANNEL` | Delivery channel | `whatsapp` or `telegram` |
-| `SKILL_DIR` | Path to skill directory (for Lobster) | `$HOME/projects/finance-news-moltbot-skill` |
+| `SKILL_DIR` | Path to skill directory (for Lobster) | `$HOME/projects/finance-news-openclaw-skill` |
 
 ## Installation
 
 ### Option 1: Docker (Recommended)
 
 ```bash
-git clone https://github.com/kesslerio/finance-news-moltbot-skill.git
-cd finance-news-moltbot-skill
+git clone https://github.com/kesslerio/finance-news-openclaw-skill.git
+cd finance-news-openclaw-skill
 docker build -t finance-news-briefing .
 ```
 
@@ -69,17 +69,17 @@ docker build -t finance-news-briefing .
 
 ```bash
 # Clone repository
-git clone https://github.com/kesslerio/finance-news-moltbot-skill.git \
-    ~/moltbot/skills/finance-news
+git clone https://github.com/kesslerio/finance-news-openclaw-skill.git \
+    ~/openclaw/skills/finance-news
 
 # Create virtual environment
-cd ~/moltbot/skills/finance-news
+cd ~/openclaw/skills/finance-news
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
 # Create CLI symlink
-ln -sf ~/moltbot/skills/finance-news/scripts/finance-news ~/.local/bin/finance-news
+ln -sf ~/openclaw/skills/finance-news/scripts/finance-news ~/.local/bin/finance-news
 ```
 
 ## Configuration
@@ -104,7 +104,7 @@ finance-news setup
 The skill includes a Lobster workflow (`workflows/briefing.yaml`) that:
 
 1. **Generates** briefing via Docker
-2. **Translates** portfolio headlines (German only, via moltbot)
+2. **Translates** portfolio headlines (German only, via openclaw)
 3. **Halts** for approval (shows preview)
 4. **Sends** macro briefing to channel
 5. **Sends** portfolio briefing to channel
@@ -139,7 +139,7 @@ Portfolio briefings show:
 
 - Python 3.10+
 - Docker (recommended)
-- moltbot CLI (for message delivery and LLM)
+- openclaw CLI (for message delivery and LLM)
 - Lobster (for workflow automation)
 
 ### Optional
@@ -152,4 +152,4 @@ Apache 2.0 - See [LICENSE](LICENSE) file for details.
 
 ## Related Skills
 
-- **[task-tracker](https://github.com/kesslerio/task-tracker-moltbot-skill):** Personal task management with daily standups
+- **[task-tracker](https://github.com/kesslerio/task-tracker-openclaw-skill):** Personal task management with daily standups

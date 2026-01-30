@@ -1,6 +1,6 @@
 # Lobster Workflows
 
-This directory contains [Lobster](https://github.com/moltbot/lobster) workflow definitions for the finance-news skill.
+This directory contains [Lobster](https://github.com/openclaw/lobster) workflow definitions for the finance-news skill.
 
 ## Available Workflows
 
@@ -11,7 +11,7 @@ Generates a market briefing and sends to WhatsApp with an approval gate.
 **Usage:**
 ```bash
 # Run via Lobster CLI
-lobster "workflows.run --file ~/projects/finance-news-moltbot-skill/workflows/briefing.yaml"
+lobster "workflows.run --file ~/projects/finance-news-openclaw-skill/workflows/briefing.yaml"
 
 # With custom args
 lobster "workflows.run --file workflows/briefing.yaml --args-json '{\"time\":\"evening\",\"lang\":\"en\"}'"
@@ -55,7 +55,7 @@ lobster "workflows.run --file workflows/briefing.yaml --args-json '{\"channel\":
 **Requirements:**
 - Docker with `finance-news-briefing` image built
 - `jq` for JSON parsing
-- `moltbot` CLI for message delivery
+- `openclaw` CLI for message delivery
 
 ## Adding to Lobster Registry
 

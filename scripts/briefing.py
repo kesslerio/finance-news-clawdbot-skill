@@ -20,17 +20,17 @@ ensure_venv()
 
 
 def send_to_whatsapp(message: str, group_name: str | None = None):
-    """Send message to WhatsApp group via moltbot message tool."""
+    """Send message to WhatsApp group via openclaw message tool."""
     if not group_name:
         group_name = os.environ.get('FINANCE_NEWS_TARGET', '')
     if not group_name:
         print("❌ No target specified. Set FINANCE_NEWS_TARGET env var or use --group", file=sys.stderr)
         return False
-    # Use moltbot message tool
+    # Use openclaw message tool
     try:
         result = subprocess.run(
             [
-                'moltbot', 'message', 'send',
+                'openclaw', 'message', 'send',
                 '--channel', 'whatsapp',
                 '--target', group_name,
                 '--message', message

@@ -147,16 +147,16 @@ Location: `~/clawd/skills/finance-news/config/config.json` (legacy fallback: `co
 
 ## Cron Jobs
 
-### Setup via Moltbot
+### Setup via OpenClaw
 
 ```bash
 # Add morning briefing cron job
-moltbot cron add --schedule "30 6 * * 1-5" \
+openclaw cron add --schedule "30 6 * * 1-5" \
   --timezone "America/Los_Angeles" \
   --command "bash ~/clawd/skills/finance-news/cron/morning.sh"
 
 # Add evening briefing cron job
-moltbot cron add --schedule "0 13 * * 1-5" \
+openclaw cron add --schedule "0 13 * * 1-5" \
   --timezone "America/Los_Angeles" \
   --command "bash ~/clawd/skills/finance-news/cron/evening.sh"
 ```
@@ -203,7 +203,7 @@ Momentum. Fed-Kommentare könnten Volatilität auslösen.
 openbb-quote AAPL && finance-news news AAPL
 ```
 
-### With Moltbot Agent
+### With OpenClaw Agent
 The agent will automatically use this skill when asked about:
 - "What's the market doing?"
 - "News for my portfolio"
@@ -212,7 +212,7 @@ The agent will automatically use this skill when asked about:
 
 ### With Lobster (Workflow Engine)
 
-Run briefings via [Lobster](https://github.com/moltbot/lobster) for approval gates and resumability:
+Run briefings via [Lobster](https://github.com/openclaw/lobster) for approval gates and resumability:
 
 ```bash
 # Run with approval before WhatsApp send
@@ -260,7 +260,7 @@ skills/finance-news/
 - `feedparser` (`pip install feedparser`)
 - Gemini CLI (`brew install gemini-cli`)
 - OpenBB (existing `openbb-quote` wrapper)
-- Moltbot message tool (for WhatsApp delivery)
+- OpenClaw message tool (for WhatsApp delivery)
 
 ## Troubleshooting
 
@@ -277,4 +277,4 @@ gemini  # Follow login flow
 
 ### WhatsApp delivery failing
 - Verify WhatsApp group exists and bot has access
-- Check `moltbot doctor` for WhatsApp status
+- Check `openclaw doctor` for WhatsApp status
