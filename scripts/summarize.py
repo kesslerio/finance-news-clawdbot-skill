@@ -70,7 +70,6 @@ class MoverContext:
     matched_headline: dict | None
     move_type: str  # "earnings" | "company_specific" | "sector" | "market_wide" | "unknown"
     vs_index: float | None
-    vs_sector_avg: float | None
 
 
 @dataclass
@@ -482,7 +481,6 @@ def detect_sector_clusters(
                         matched_headline=None,
                         move_type="sector",
                         vs_index=None,
-                        vs_sector_avg=None,
                     )
                     for s in group
                 ]
@@ -571,7 +569,7 @@ def build_watchpoints_data(
         move_type = classify_move_type(matched_headline, in_cluster, change_pct, index_change)
 
         # Calculate relative performance
-        vs_index = change_pct - index_change if index_change else None
+        vs_index = change_pct - index_change
 
         mover_contexts.append(MoverContext(
             symbol=symbol,
@@ -581,7 +579,6 @@ def build_watchpoints_data(
             matched_headline=matched_headline,
             move_type=move_type,
             vs_index=vs_index,
-            vs_sector_avg=None,
         ))
 
     # Sort by absolute change
@@ -608,7 +605,7 @@ def format_watchpoints(
 
     # 1. Format sector clusters first (most insightful)
     for cluster in data.sector_clusters:
-        emoji = "\U0001f4c8" if cluster.direction == "up" else "\U0001f4c9"
+        emoji = "📈" if cluster.direction == "up" else "📉"
         vs_index_str = f" (vs Index: {cluster.vs_index:+.1f}%)" if abs(cluster.vs_index) > 0.5 else ""
 
         lines.append(f"{emoji} **{cluster.category}** ({cluster.avg_change:+.1f}%){vs_index_str}")
@@ -626,7 +623,7 @@ def format_watchpoints(
     unclustered = [m for m in data.movers if m.symbol.upper() not in clustered_symbols]
 
     for mover in unclustered[:5]:
-        emoji = "\U0001f4c8" if mover.change_pct > 0 else "\U0001f4c9"
+        emoji = "📈" if mover.change_pct > 0 else "📉"
 
         # Build context string
         context = ""
@@ -650,10 +647,10 @@ def format_watchpoints(
     if data.market_wide:
         if language == "de":
             direction = "fiel" if data.index_change < 0 else "stieg"
-            lines.append(f"\n\u26a0\ufe0f Breite Marktbewegung: S&P 500 {direction} {abs(data.index_change):.1f}%")
+            lines.append(f"\n⚠️ Breite Marktbewegung: S&P 500 {direction} {abs(data.index_change):.1f}%")
         else:
             direction = "fell" if data.index_change < 0 else "rose"
-            lines.append(f"\n\u26a0\ufe0f Market-wide move: S&P 500 {direction} {abs(data.index_change):.1f}%")
+            lines.append(f"\n⚠️ Market-wide move: S&P 500 {direction} {abs(data.index_change):.1f}%")
 
     return "\n".join(lines) if lines else labels.get("no_movers", "No significant moves")
 
@@ -1321,41 +1318,6 @@ def build_briefing_summary(
                 sym_key = row.get('symbol', '').strip().upper()
                 if sym_key:
                     portfolio_meta[sym_key] = row
-
-    # Group movers by sector/category
-    def group_by_sector(stocks: list[dict], direction: str) -> list[str]:
-        """Group stocks by sector and return formatted lines."""
-        sector_groups: dict[str, list[dict]] = {}
-        for s in stocks:
-            sym = s['symbol'].upper()
-            category = portfolio_meta.get(sym, {}).get('category', 'Other')
-            if category not in sector_groups:
-                sector_groups[category] = []
-            sector_groups[category].append(s)
-
-        result_lines = []
-        # Sort sectors by total move magnitude
-        sorted_sectors = sorted(
-            sector_groups.items(),
-            key=lambda x: sum(abs(s['change']) for s in x[1]),
-            reverse=True
-        )
-
-        for sector, sector_stocks in sorted_sectors[:3]:  # Top 3 sectors
-            if len(sector_stocks) >= 2:
-                # Multiple stocks in sector - show sector trend
-                emoji = "📈" if direction == "up" else "📉"
-                stocks_str = ", ".join(f"{s['symbol']} ({s['change']:+.1f}%)" for s in sector_stocks[:3])
-                if language == "de":
-                    result_lines.append(f"{emoji} {sector}: {stocks_str}")
-                else:
-                    result_lines.append(f"{emoji} {sector}: {stocks_str}")
-            else:
-                # Single stock - just list with percentage
-                s = sector_stocks[0]
-                result_lines.append(f"{s['symbol']} ({s['change']:+.1f}%)")
-
-        return result_lines
 
     # Build watchpoints with contextual analysis
     index_change = get_index_change(market_data)

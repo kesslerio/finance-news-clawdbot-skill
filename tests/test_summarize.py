@@ -11,6 +11,7 @@ from summarize import (
     MoverContext,
     SectorCluster,
     WatchpointsData,
+    build_watchpoints_data,
     classify_move_type,
     detect_sector_clusters,
     format_watchpoints,
@@ -239,7 +240,6 @@ class TestFormatWatchpoints:
             matched_headline={"title": "NVIDIA reports record revenue"},
             move_type="company_specific",
             vs_index=4.5,
-            vs_sector_avg=None,
         )
         data = WatchpointsData(
             movers=[mover],
@@ -283,7 +283,6 @@ class TestFormatWatchpoints:
             matched_headline=None,
             move_type="unknown",
             vs_index=1.0,
-            vs_sector_avg=None,
         )
         data = WatchpointsData(
             movers=[mover],
@@ -295,3 +294,52 @@ class TestFormatWatchpoints:
         result = format_watchpoints(data, "en", labels)
         assert "XYZ" in result
         assert "no news" in result
+
+
+class TestBuildWatchpointsData:
+    def test_builds_complete_data_structure(self):
+        movers = [
+            {"symbol": "NVDA", "change_pct": -5.0, "price": 100.0},
+            {"symbol": "AMD", "change_pct": -4.0, "price": 80.0},
+            {"symbol": "INTC", "change_pct": -3.0, "price": 30.0},
+            {"symbol": "AAPL", "change_pct": 2.0, "price": 150.0},
+        ]
+        headlines = [
+            {"title": "NVIDIA reports weak guidance"},
+            {"title": "Apple announces new product"},
+        ]
+        portfolio_meta = {
+            "NVDA": {"category": "Tech", "name": "NVIDIA Corporation"},
+            "AMD": {"category": "Tech", "name": "Advanced Micro Devices"},
+            "INTC": {"category": "Tech", "name": "Intel Corporation"},
+            "AAPL": {"category": "Tech", "name": "Apple Inc"},
+        }
+        index_change = -0.5
+
+        result = build_watchpoints_data(movers, headlines, portfolio_meta, index_change)
+
+        # Should detect Tech sector cluster (3 losers)
+        assert len(result.sector_clusters) == 1
+        assert result.sector_clusters[0].category == "Tech"
+        assert result.sector_clusters[0].direction == "down"
+
+        # All movers should be present
+        assert len(result.movers) == 4
+
+        # NVDA should have matched headline
+        nvda_mover = next(m for m in result.movers if m.symbol == "NVDA")
+        assert nvda_mover.matched_headline is not None
+        assert "guidance" in nvda_mover.matched_headline["title"]
+
+        # vs_index should be calculated
+        assert nvda_mover.vs_index == -5.0 - (-0.5)  # -4.5
+
+    def test_handles_empty_movers(self):
+        result = build_watchpoints_data([], [], {}, 0.0)
+        assert result.movers == []
+        assert result.sector_clusters == []
+        assert result.market_wide is False
+
+    def test_detects_market_wide_move(self):
+        result = build_watchpoints_data([], [], {}, -2.0)
+        assert result.market_wide is True
