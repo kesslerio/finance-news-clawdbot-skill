@@ -13,7 +13,7 @@
     },
     "finanzen_net": {
       "name": "Finanzen.net",
-      "enabled": true,
+      "enabled": false,
       "news": "https://www.finanzen.net/rss/news"
     },
     "handelsblatt": {

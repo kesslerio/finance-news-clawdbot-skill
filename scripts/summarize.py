@@ -344,7 +344,6 @@ def run_agent_prompt(prompt: str, deadline: float | None = None, session_id: str
         proc_timeout = clamp_timeout(timeout + 10, deadline)
         cmd = [
             'openclaw', 'agent',
-            '--agent', 'main',
             '--session-id', session_id,
             '--message', prompt,
             '--json',
@@ -990,7 +989,6 @@ Use only the following information for the briefing:
         result = subprocess.run(
             [
                 'openclaw', 'agent',
-                '--agent', 'main',
                 '--session-id', 'finance-news-briefing',
                 '--message', prompt,
                 '--json',
