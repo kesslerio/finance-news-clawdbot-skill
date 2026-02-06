@@ -325,7 +325,7 @@ class TestFormatWatchpoints:
             category="Other",
             matched_headline=None,
             move_type="unknown",
-            vs_index=1.0,
+            vs_index=0.2,
         )
         data = WatchpointsData(
             movers=[mover],
@@ -333,7 +333,7 @@ class TestFormatWatchpoints:
             index_change=0.5,
             market_wide=False,
         )
-        labels = {"no_catalyst": " -- no news"}
+        labels = {"likely_sector_contagion": " -- no news"}
         result = format_watchpoints(data, "en", labels)
         assert "XYZ" in result
         assert "no news" in result
