@@ -146,6 +146,39 @@ def ticker_to_name(symbol: str, portfolio_meta: dict | None = None) -> str:
             return name
     return INTL_TICKER_NAME_OVERRIDES.get(symbol_upper, "")
 
+
+def load_portfolio_metadata() -> dict:
+    """Load portfolio metadata keyed by upper-cased symbol."""
+    portfolio_meta: dict = {}
+    portfolio_csv = CONFIG_DIR / "portfolio.csv"
+    if not portfolio_csv.exists():
+        return portfolio_meta
+
+    import csv
+
+    with open(portfolio_csv, "r") as f:
+        for row in csv.DictReader(f):
+            sym_key = row.get("symbol", "").strip().upper()
+            if sym_key:
+                portfolio_meta[sym_key] = row
+    return portfolio_meta
+
+
+def format_symbol_display(symbol: str, info: dict | None = None, portfolio_meta: dict | None = None) -> str:
+    """Format symbol for output, adding company name for international tickers."""
+    if not symbol:
+        return ""
+
+    name = ""
+    if info:
+        name = (info.get("name") or "").strip()
+    if not name:
+        name = ticker_to_name(symbol, portfolio_meta)
+
+    if "." in symbol and name:
+        return f"{name} ({symbol})"
+    return symbol
+
 LANG_PROMPTS = {
     "de": "Output must be in German only.",
     "en": "Output must be in English only."
@@ -1132,6 +1165,7 @@ def format_portfolio_news(portfolio_data: dict) -> str:
     Priority factors: position type (40%), price volatility (35%), news volume (25%).
     """
     lines = ["## Portfolio News\n"]
+    portfolio_meta = load_portfolio_metadata()
 
     # Group by type with scores: {type: [(score, formatted_entry), ...]}
     by_type: dict[str, list[tuple[float, str]]] = {'Holding': [], 'Watchlist': []}
@@ -1169,10 +1203,16 @@ def format_portfolio_news(portfolio_data: dict) -> str:
             indicators.append(f"{len(articles)} articles")
         indicator_str = f" [{', '.join(indicators)}]" if indicators else ""
 
+        display_symbol = format_symbol_display(symbol, info, portfolio_meta)
         # Format entry
-        entry = [f"#### {symbol} (${price}, {change_pct:+.2f}%){indicator_str}"]
+        entry = [f"#### {display_symbol} (${price}, {change_pct:+.2f}%){indicator_str}"]
         for article in articles[:3]:
-            entry.append(f"- {article.get('title', '')}")
+            title = article.get("title_de") or article.get("title", "")
+            link = article.get("link", "")
+            if link:
+                entry.append(f"- {title} | {link}")
+            else:
+                entry.append(f"- {title}")
         entry.append("")
 
         by_type[t].append((score, '\n'.join(entry)))
@@ -1248,6 +1288,92 @@ def classify_sentiment(market_data: dict, portfolio_data: dict | None = None) ->
         "top_gainers": top_gainers,
         "top_losers": top_losers,
     }
+
+
+def build_portfolio_message(portfolio_data: dict, labels: dict, language: str) -> str:
+    """Build a portfolio movers message with translated titles and source refs."""
+    if not portfolio_data:
+        return ""
+
+    stocks_raw = portfolio_data.get("stocks", {})
+    if not stocks_raw:
+        return ""
+
+    portfolio_meta = load_portfolio_metadata()
+    p_meta = portfolio_data.get("meta", {})
+    total_stocks = p_meta.get("total_stocks")
+    portfolio_header = labels.get("heading_portfolio_movers", "Portfolio Movers")
+
+    stocks = []
+    all_articles = []
+    for symbol, data in stocks_raw.items():
+        quote = data.get("quote", {})
+        change = quote.get("change_percent", 0) or 0
+        price = quote.get("price")
+        info = data.get("info") or {}
+        articles = data.get("articles", [])[:2]
+        stocks.append(
+            {
+                "symbol": symbol,
+                "display_symbol": format_symbol_display(symbol, info, portfolio_meta),
+                "change": change,
+                "price": price,
+                "articles": articles,
+            }
+        )
+        all_articles.extend(articles)
+
+    stocks.sort(key=lambda x: x["change"], reverse=True)
+
+    title_translations: dict[str, str] = {}
+    if language == "de" and all_articles:
+        titles_to_translate = []
+        for art in all_articles:
+            if art.get("title_de"):
+                continue
+            title = (art.get("title") or "").strip()
+            if title:
+                titles_to_translate.append(title)
+        if titles_to_translate:
+            translated, success = translate_headlines(titles_to_translate, deadline=None)
+            if success:
+                for orig, trans in zip(titles_to_translate, translated):
+                    title_translations[orig] = trans
+
+    header_line = f"📊 **{portfolio_header}**"
+    if isinstance(total_stocks, int) and total_stocks > len(stocks):
+        header_line = f"{header_line} (Top {len(stocks)} of {total_stocks})"
+    lines = [header_line]
+
+    ref_idx = 1
+    portfolio_sources: list[dict] = []
+
+    for stock in stocks:
+        emoji = "📈" if stock["change"] >= 0 else "📉"
+        price = stock["price"]
+        price_str = f"${price:.2f}" if isinstance(price, (int, float)) else "N/A"
+        lines.append(f"\n**{stock['display_symbol']}** {emoji} {price_str} ({stock['change']:+.2f}%)")
+
+        for art in stock["articles"]:
+            title = (art.get("title") or "").strip()
+            if not title:
+                continue
+            display_title = art.get("title_de") or title_translations.get(title, title)
+            link = (art.get("link") or "").strip()
+            if link:
+                lines.append(f"• {display_title} [{ref_idx}]")
+                portfolio_sources.append({"idx": ref_idx, "link": link})
+                ref_idx += 1
+            else:
+                lines.append(f"• {display_title}")
+
+    if portfolio_sources:
+        sources_header = labels.get("sources_header", "Sources")
+        lines.append(f"\n## {sources_header}\n")
+        for src in portfolio_sources:
+            lines.append(f"[{src['idx']}] {shorten_url(src['link'])}")
+
+    return "\n".join(lines)
 
 
 def build_briefing_summary(
@@ -1346,30 +1472,23 @@ def build_briefing_summary(
     else:
         lines.append(no_data)
 
+    # Load portfolio metadata for name formatting and sector analysis
+    portfolio_meta = load_portfolio_metadata()
+
     lines.append("")
     lines.append(f"### {heading_portfolio}")
     if movers:
         for item in movers:
-            symbol = item.get("symbol")
+            symbol = item.get("symbol", "")
             change = item.get("change_pct")
             if isinstance(change, (int, float)):
-                lines.append(f"- **{symbol}**: {change:+.2f}%")
+                display_symbol = format_symbol_display(symbol, portfolio_meta=portfolio_meta)
+                lines.append(f"- **{display_symbol}**: {change:+.2f}%")
     else:
         lines.append(no_movers)
 
     lines.append("")
     lines.append(f"### {heading_reco}")
-
-    # Load portfolio metadata for sector analysis
-    portfolio_meta = {}
-    portfolio_csv = CONFIG_DIR / "portfolio.csv"
-    if portfolio_csv.exists():
-        import csv
-        with open(portfolio_csv, 'r') as f:
-            for row in csv.DictReader(f):
-                sym_key = row.get('symbol', '').strip().upper()
-                if sym_key:
-                    portfolio_meta[sym_key] = row
 
     # Build watchpoints with contextual analysis
     index_change = get_index_change(market_data)
@@ -1473,6 +1592,12 @@ def generate_briefing(args):
     except Exception as exc:
         print(f"⚠️ Skipping portfolio movers: {exc}", file=sys.stderr)
         movers = []
+
+    if language == "de" and portfolio_data:
+        portfolio_articles: list[dict] = []
+        for stock_data in portfolio_data.get("stocks", {}).values():
+            portfolio_articles.extend(stock_data.get("articles", [])[:2])
+        translate_headline_items(portfolio_articles, deadline=deadline)
     
     # Build raw content for summarization
     content_parts = []
@@ -1639,99 +1764,7 @@ def generate_briefing(args):
     # Message 2: Portfolio (if available)
     portfolio_output = ""
     if portfolio_data:
-        p_meta = portfolio_data.get('meta', {})
-        total_stocks = p_meta.get('total_stocks')
-
-        # Determine if we should split (Large portfolio or explicitly requested)
-        is_large = total_stocks and total_stocks > 15
-
-        if is_large:
-            # Load portfolio metadata directly for company names (fallback)
-            portfolio_meta = {}
-            portfolio_csv = CONFIG_DIR / "portfolio.csv"
-            if portfolio_csv.exists():
-                import csv
-                with open(portfolio_csv, 'r') as f:
-                    for row in csv.DictReader(f):
-                        sym_key = row.get('symbol', '').strip().upper()
-                        if sym_key:
-                            portfolio_meta[sym_key] = row
-
-            # Format top movers for Message 2
-            portfolio_header = labels.get("heading_portfolio_movers", "Portfolio Movers")
-            lines = [f"📊 **{portfolio_header}** (Top {len(portfolio_data['stocks'])} of {total_stocks})"]
-
-            # Sort stocks by magnitude of move for display
-            stocks = []
-            for sym, data in portfolio_data['stocks'].items():
-                quote = data.get('quote', {})
-                change = quote.get('change_percent', 0)
-                price = quote.get('price')
-                info = data.get('info', {})
-                # Try info first, then fallback to direct portfolio lookup
-                name = info.get('name', '') or portfolio_meta.get(sym.upper(), {}).get('name', '') or sym
-                stocks.append({'symbol': sym, 'name': name, 'change': change, 'price': price, 'articles': data.get('articles', []), 'info': info})
-
-            stocks.sort(key=lambda x: x['change'], reverse=True)
-
-            # Collect all article titles for translation (if German)
-            all_articles = []
-            for s in stocks:
-                for art in s['articles'][:2]:
-                    all_articles.append(art)
-
-            # Translate headlines if German
-            title_translations = {}
-            if language == "de" and all_articles:
-                titles_to_translate = [art.get('title', '') for art in all_articles]
-                translated, _ = translate_headlines(titles_to_translate, deadline=None)
-                for orig, trans in zip(titles_to_translate, translated):
-                    title_translations[orig] = trans
-
-            # Format with references
-            ref_idx = 1
-            portfolio_sources = []
-
-            for s in stocks:
-                emoji_p = '📈' if s['change'] >= 0 else '📉'
-                price_str = f"${s['price']:.2f}" if s['price'] else 'N/A'
-                # Show company name with ticker for non-US stocks, or if name differs from symbol
-                display_name = s['symbol']
-                if s['name'] and s['name'] != s['symbol']:
-                    # For international tickers (contain .), show Name (TICKER)
-                    if '.' in s['symbol']:
-                        display_name = f"{s['name']} ({s['symbol']})"
-                    else:
-                        display_name = s['symbol']  # US tickers: just symbol
-                lines.append(f"\n**{display_name}** {emoji_p} {price_str} ({s['change']:+.2f}%)")
-                for art in s['articles'][:2]:
-                    art_title = art.get('title', '')
-                    # Use translated title if available
-                    display_title = title_translations.get(art_title, art_title)
-                    link = art.get('link', '')
-                    if link:
-                        lines.append(f"• {display_title} [{ref_idx}]")
-                        portfolio_sources.append({'idx': ref_idx, 'link': link})
-                        ref_idx += 1
-                    else:
-                        lines.append(f"• {display_title}")
-
-            # Add sources section
-            if portfolio_sources:
-                sources_header = labels.get("sources_header", "Sources")
-                lines.append(f"\n## {sources_header}\n")
-                for src in portfolio_sources:
-                    short_link = shorten_url(src['link'])
-                    lines.append(f"[{src['idx']}] {short_link}")
-
-            portfolio_output = "\n".join(lines)
-            
-            # If not JSON output, we might want to print a delimiter
-            if not args.json:
-                # For stdout, we just print them separated by newline if not handled by briefing.py splitting
-                # But briefing.py needs to know to split.
-                # We'll use a delimiter that briefing.py can look for.
-                pass
+        portfolio_output = build_portfolio_message(portfolio_data, labels, language)
         
     write_debug_once()
 
