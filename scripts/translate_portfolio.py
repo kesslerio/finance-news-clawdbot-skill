@@ -114,6 +114,21 @@ def replace_headlines(portfolio_message: str, original: list[str], translated: l
     return result
 
 
+def has_pretranslated_portfolio(data: dict) -> bool:
+    """Return True when all relevant portfolio headlines already have title_de."""
+    raw_portfolio = (data.get("raw_data") or {}).get("portfolio") or {}
+    saw_relevant_headline = False
+    for stock_data in (raw_portfolio.get("stocks") or {}).values():
+        for article in stock_data.get("articles", [])[:2]:
+            title = (article.get("title") or "").strip()
+            if not title:
+                continue
+            saw_relevant_headline = True
+            if not (article.get("title_de") or "").strip():
+                return False
+    return saw_relevant_headline
+
+
 def main():
     parser = argparse.ArgumentParser(description='Translate portfolio headlines')
     parser.add_argument('json_file', help='Path to briefing JSON file')
@@ -132,6 +147,10 @@ def main():
     if not portfolio_message:
         print("No portfolio_message to translate", file=sys.stderr)
         print(json.dumps(data, ensure_ascii=False, indent=2))
+        return
+
+    if has_pretranslated_portfolio(data):
+        print("Portfolio headlines already translated; skipping", file=sys.stderr)
         return
 
     # Extract, translate, replace

@@ -11,10 +11,13 @@ from summarize import (
     MoverContext,
     SectorCluster,
     WatchpointsData,
+    build_briefing_summary,
+    build_portfolio_message,
     build_watchpoints_data,
     classify_move_type,
     validate_briefing_structure,
     detect_sector_clusters,
+    format_symbol_display,
     format_watchpoints,
     get_index_change,
     match_headline_to_symbol,
@@ -66,6 +69,60 @@ def test_validate_briefing_structure_missing_sections():
     assert ok is False
     assert "portfolio_impact" in missing
     assert "watchpoints" in missing
+
+
+def test_format_symbol_display_international_ticker():
+    display = format_symbol_display("NOVO-B.CO", portfolio_meta={"NOVO-B.CO": {"name": "Novo Nordisk"}})
+    assert display == "Novo Nordisk (NOVO-B.CO)"
+
+
+def test_build_portfolio_message_adds_links_and_translation(monkeypatch):
+    portfolio_data = {
+        "meta": {"total_stocks": 2},
+        "stocks": {
+            "NOVO-B.CO": {
+                "quote": {"price": 100.0, "change_percent": -2.5},
+                "info": {},
+                "articles": [
+                    {"title": "Novo Nordisk falls on trial update", "link": "https://example.com/novo"}
+                ],
+            }
+        },
+    }
+    labels = {
+        "heading_portfolio_movers": "Portfolio-Bewegungen",
+        "sources_header": "Quellen",
+    }
+    monkeypatch.setattr(summarize, "load_portfolio_metadata", lambda: {"NOVO-B.CO": {"name": "Novo Nordisk"}})
+    monkeypatch.setattr(
+        summarize,
+        "translate_headlines",
+        lambda titles, deadline=None: (["Novo Nordisk fällt nach Studienupdate"], True),
+    )
+
+    output = build_portfolio_message(portfolio_data, labels, "de")
+    assert "Novo Nordisk (NOVO-B.CO)" in output
+    assert "Novo Nordisk fällt nach Studienupdate [1]" in output
+    assert "## Quellen" in output
+
+
+def test_build_briefing_summary_uses_name_for_international_mover(monkeypatch):
+    labels = {
+        "heading_briefing": "Marktbriefing",
+        "heading_markets": "Märkte",
+        "heading_sentiment": "Stimmung",
+        "heading_top_headlines": "Top 5 Schlagzeilen",
+        "heading_portfolio_impact": "Portfolio-Auswirkung",
+        "heading_watchpoints": "Beobachtungspunkte",
+        "no_data": "Keine Daten verfügbar",
+        "no_movers": "Keine deutlichen Bewegungen (±1%)",
+    }
+    market_data = {"markets": {}}
+    movers = [{"symbol": "NOVO-B.CO", "change_pct": -2.0, "price": 95.0}]
+    monkeypatch.setattr(summarize, "load_portfolio_metadata", lambda: {"NOVO-B.CO": {"name": "Novo Nordisk"}})
+
+    summary = build_briefing_summary(market_data, None, movers, [], labels, "de")
+    assert "**Novo Nordisk (NOVO-B.CO)**: -2.00%" in summary
 
 
 def test_generate_briefing_auto_time_evening(capsys, monkeypatch):
