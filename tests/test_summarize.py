@@ -99,6 +99,148 @@ def test_translate_headlines_falls_back_to_openclaw(monkeypatch):
     assert translated == ["Titel"]
 
 
+def test_translate_via_gemini_api_missing_key(monkeypatch):
+    """Returns original titles when GEMINI_API_KEY is not set."""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    translated, success = summarize.translate_via_gemini_api(["Title A"], deadline=None)
+    assert success is False
+    assert translated == ["Title A"]
+
+
+def test_translate_via_gemini_api_empty_key(monkeypatch):
+    """Returns original titles when GEMINI_API_KEY is empty/whitespace."""
+    monkeypatch.setenv("GEMINI_API_KEY", "  ")
+    translated, success = summarize.translate_via_gemini_api(["Title A"], deadline=None)
+    assert success is False
+    assert translated == ["Title A"]
+
+
+def test_translate_via_gemini_api_http_error(monkeypatch):
+    """Falls back on non-retryable HTTP errors (e.g. 400)."""
+    from urllib.error import HTTPError
+    import io
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(summarize, "_GEMINI_MAX_RETRIES", 0)
+
+    def raise_400(req, timeout=0):
+        raise HTTPError("https://example.com", 400, "Bad Request", {}, io.BytesIO(b""))
+
+    monkeypatch.setattr(summarize.urllib.request, "urlopen", raise_400)
+    translated, success = summarize.translate_via_gemini_api(["Title"], deadline=None)
+    assert success is False
+    assert translated == ["Title"]
+
+
+def test_translate_via_gemini_api_timeout(monkeypatch):
+    """Falls back on timeout."""
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(summarize, "_GEMINI_MAX_RETRIES", 0)
+
+    def raise_timeout(req, timeout=0):
+        raise TimeoutError("Connection timed out")
+
+    monkeypatch.setattr(summarize.urllib.request, "urlopen", raise_timeout)
+    translated, success = summarize.translate_via_gemini_api(["Title"], deadline=None)
+    assert success is False
+    assert translated == ["Title"]
+
+
+def test_translate_via_gemini_api_malformed_json(monkeypatch):
+    """Falls back when API returns non-JSON."""
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+
+    class _BadResponse:
+        def read(self):
+            return b"not json at all"
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(summarize.urllib.request, "urlopen", lambda req, timeout=0: _BadResponse())
+    translated, success = summarize.translate_via_gemini_api(["Title"], deadline=None)
+    assert success is False
+    assert translated == ["Title"]
+
+
+def test_translate_via_gemini_api_empty_candidates(monkeypatch):
+    """Falls back when API returns empty candidates array."""
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    payload = {"candidates": []}
+    monkeypatch.setattr(
+        summarize.urllib.request, "urlopen",
+        lambda req, timeout=0: _FakeUrlopenResponse(payload),
+    )
+    translated, success = summarize.translate_via_gemini_api(["Title"], deadline=None)
+    assert success is False
+    assert translated == ["Title"]
+
+
+def test_translate_via_gemini_api_length_mismatch(monkeypatch):
+    """Falls back when API returns wrong number of translations."""
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    payload = {
+        "candidates": [{
+            "content": {"parts": [{"text": '["Only One"]'}]}
+        }]
+    }
+    monkeypatch.setattr(
+        summarize.urllib.request, "urlopen",
+        lambda req, timeout=0: _FakeUrlopenResponse(payload),
+    )
+    translated, success = summarize.translate_via_gemini_api(
+        ["Title A", "Title B", "Title C"], deadline=None,
+    )
+    assert success is False
+    assert translated == ["Title A", "Title B", "Title C"]
+
+
+def test_translate_via_gemini_api_retries_on_429(monkeypatch):
+    """Retries on 429 then succeeds."""
+    from urllib.error import HTTPError
+    import io
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(summarize, "_GEMINI_MAX_RETRIES", 1)
+    monkeypatch.setattr(summarize.time, "sleep", lambda s: None)  # skip wait
+
+    call_count = [0]
+    success_payload = {
+        "candidates": [{
+            "content": {"parts": [{"text": '["Titel"]'}]}
+        }]
+    }
+
+    def mock_urlopen(req, timeout=0):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            raise HTTPError("https://example.com", 429, "Rate Limited", {}, io.BytesIO(b""))
+        return _FakeUrlopenResponse(success_payload)
+
+    monkeypatch.setattr(summarize.urllib.request, "urlopen", mock_urlopen)
+    translated, success = summarize.translate_via_gemini_api(["Title"], deadline=None)
+    assert success is True
+    assert translated == ["Titel"]
+    assert call_count[0] == 2
+
+
+def test_translate_via_gemini_api_empty_list():
+    """Returns empty list for empty input."""
+    translated, success = summarize.translate_via_gemini_api([], deadline=None)
+    assert success is True
+    assert translated == []
+
+
+def test_build_translation_prompt():
+    """Shared prompt builder produces expected format."""
+    prompt = summarize._build_translation_prompt(["Headline A", "Headline B"])
+    assert "2 English headlines" in prompt
+    assert "1. Headline A" in prompt
+    assert "2. Headline B" in prompt
+    assert "JSON array" in prompt
+
+
 def test_validate_briefing_structure_success():
     labels = {
         "heading_markets": "Markets",
